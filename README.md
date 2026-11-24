@@ -49,6 +49,25 @@ Switching mode clears any queued inputs. When nobody is voting, the meter
 drifts back to anarchy. `min_votes` (default 5) stops one or two viewers
 flipping the mode on a quiet stream.
 
+### Claude mode (optional)
+With `[claude] enabled = true`, Claude plays instead of anarchy and democracy.
+Every 10 seconds (`window_seconds`), it reads all of that window's chat. Chat
+can be commands like `up2left` or plain English like "go heal at the Pokémon
+Center". Claude then picks up to 9 presses (`max_presses`).
+
+- It can only press the game's allowed buttons.
+- Each new decision replaces any presses still waiting from the last one.
+- A window with no chat leaves the game alone.
+- The overlay's `mode.txt` shows what Claude is doing.
+
+```bash
+pip install -e ".[claude]"
+set ANTHROPIC_API_KEY=sk-ant-...    # Mac/Linux: export ANTHROPIC_API_KEY=sk-ant-...
+```
+
+API usage is billed separately from a claude.ai subscription. The default
+model, `claude-haiku-5-5`, is the cheapest. Set `model` to use a stronger one.
+
 ## Setup
 
 Requires Python 3.11+.

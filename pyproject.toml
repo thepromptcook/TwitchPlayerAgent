@@ -13,6 +13,7 @@ dependencies = []
 
 [project.optional-dependencies]
 pyboy = ["pyboy>=2.0"]
+claude = ["anthropic"]
 keyboard = ["pynput>=1.7", "pydirectinput>=1.0; sys_platform == 'win32'"]
 dev = ["pytest>=8"]
 

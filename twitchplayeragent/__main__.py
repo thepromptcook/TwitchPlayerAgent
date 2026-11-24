@@ -11,6 +11,7 @@ from .backends import make_backend
 from .chat import StdinChat, TwitchIrcChat
 from .config import load_config
 from .engine import Engine
+from .llm import unavailable
 from .overlay import Overlay
 
 log = logging.getLogger("twitchplayeragent")
@@ -34,6 +35,13 @@ def main(argv: list[str] | None = None) -> None:
     cfg = load_config(args.config)
     if args.dry_run:
         cfg.backend.type = "log"
+
+    if cfg.claude.enabled:
+        problem = unavailable(cfg)
+        if problem:
+            raise SystemExit(f"Claude mode is on in your config, but {problem}")
+        log.info("Claude mode: %s reads chat every %gs and picks the presses",
+                 cfg.claude.model, cfg.claude.window_seconds)
 
     t = cfg.twitch
     chat = StdinChat() if args.stdin else TwitchIrcChat(t.channel, t.nick, t.oauth_token, t.host, t.port)

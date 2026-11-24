@@ -40,9 +40,13 @@ class Overlay:
         os.replace(tmp, path)  # atomic, so OBS never reads a half-written file
 
     def write(self, *, inputs: list[str], mode: str, share: float, threshold: float,
-              votes: list[tuple[str, int]], total_votes: int, seconds_left: float | None) -> None:
+              votes: list[tuple[str, int]], total_votes: int, seconds_left: float | None,
+              summary: str = "") -> None:
         self._write("inputs.txt", "\n".join(inputs) + ("\n" if inputs else ""))
-        self._write("mode.txt", f"{mode.upper()}\n{render_bar(share, threshold)}\n")
+        if mode == "claude":  # no meter in Claude mode: show what Claude is doing
+            self._write("mode.txt", f"CLAUDE\n{summary}\n")
+        else:
+            self._write("mode.txt", f"{mode.upper()}\n{render_bar(share, threshold)}\n")
         if mode == "democracy":
             lines = []
             if seconds_left is not None:

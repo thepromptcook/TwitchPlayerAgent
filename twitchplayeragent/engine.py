@@ -17,6 +17,7 @@ from .backends.base import Backend
 from .chat import ChatMessage
 from .commands import parse_anarchy, parse_democracy, parse_mode_vote
 from .config import Config
+from .llm import Planner
 from .modes import DemocracyTally, Mode, ModeMeter
 from .overlay import Overlay
 
@@ -41,15 +42,23 @@ class Engine:
         self.overlay = overlay
         self.dirty = True
         self._wake: asyncio.Event | None = None
+        # Claude mode: Claude picks the presses and the anarchy/democracy meter is off.
+        self.planner = Planner(cfg) if cfg.claude.enabled else None
+        self.claude_queue: deque[str] = deque()
+        self.claude_summary = ""
 
     @property
     def mode(self) -> Mode:
-        return self.meter.mode
+        return Mode.CLAUDE if self.planner else self.meter.mode
 
     # ---- decision logic -------------------------------------------------
 
     def handle(self, msg: ChatMessage, now: float) -> None:
         """Process one chat message."""
+        if self.planner is not None:  # Claude mode: all chat goes to Claude
+            self.planner.add(msg)
+            return
+
         vote = parse_mode_vote(msg.text)
         if vote is not None:
             self.recent.append(f"{msg.display}  {vote.value}")
@@ -83,6 +92,8 @@ class Engine:
 
     def tick(self, now: float) -> None:
         """Advance timers: vote decay on the meter and the democracy round clock."""
+        if self.planner is not None:
+            return
         changed = self.meter.update(now)
         if changed:
             self._on_mode_change(changed, now)
@@ -98,8 +109,18 @@ class Engine:
 
     def next_press(self) -> str | None:
         """The next button to send to the game, if any."""
-        q = self.anarchy_queue if self.mode is Mode.ANARCHY else self.democracy_queue
+        q = {Mode.ANARCHY: self.anarchy_queue, Mode.DEMOCRACY: self.democracy_queue,
+             Mode.CLAUDE: self.claude_queue}[self.mode]
         return q.popleft() if q else None
+
+    def apply_claude(self, summary: str, presses: list[str]) -> None:
+        """A Claude decision replaces any presses still queued from the last one."""
+        self.claude_queue.clear()
+        self.claude_queue.extend(presses)
+        self.claude_summary = summary
+        self.recent.append(f">> {' '.join(presses) or 'wait'}")
+        self.dirty = True
+        self._notify()
 
     def _on_mode_change(self, mode: Mode, now: float) -> None:
         log.info("Mode switched to %s", mode.value.upper())
@@ -128,14 +149,29 @@ class Engine:
             votes=self.tally.results(),
             total_votes=self.tally.total,
             seconds_left=None if self.round_ends_at is None else self.round_ends_at - now,
+            summary=self.claude_summary,
         )
+
+    async def _claude_loop(self) -> None:
+        assert self.planner is not None
+        window = self.cfg.claude.window_seconds
+        loop = asyncio.get_running_loop()
+        deadline = loop.time()
+        while True:
+            # Fixed cadence: a slow call shortens the next wait instead of drifting.
+            deadline = max(deadline + window, loop.time())
+            await asyncio.sleep(deadline - loop.time())
+            decision = await self.planner.decide()
+            if decision is not None:
+                self.apply_claude(*decision)
 
     async def _read_chat(self, chat: AsyncIterable[ChatMessage]) -> None:
         async for msg in chat:
             self.handle(msg, time.monotonic())
         # Chat ended (e.g. end of piped stdin): let queued inputs and any open
         # democracy round finish before shutting down.
-        while self.anarchy_queue or self.democracy_queue or self.round_ends_at is not None:
+        while (self.anarchy_queue or self.democracy_queue or self.round_ends_at is not None
+               or self.claude_queue or (self.planner is not None and self.planner.buffer)):
             await asyncio.sleep(0.1)
         await asyncio.sleep(0.5)
 
@@ -166,6 +202,8 @@ class Engine:
             asyncio.create_task(self._clock(), name="clock"),
             asyncio.create_task(self._press_worker(backend), name="presses"),
         ]
+        if self.planner is not None:
+            tasks.append(asyncio.create_task(self._claude_loop(), name="claude"))
         try:
             done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
             for t in done:

@@ -28,6 +28,15 @@ vote_lifetime = 60      # seconds a mode vote keeps counting
 min_votes = 5           # don't switch on fewer live votes than this
 start_mode = "anarchy"
 
+[claude]
+# true: Claude reads all chat (commands and plain English) and picks the presses,
+# instead of anarchy/democracy. Needs: pip install -e ".[claude]" and ANTHROPIC_API_KEY.
+enabled = false
+model = "claude-haiku-5-5"
+effort = "low"
+window_seconds = 10     # chat per decision
+max_presses = 9         # presses per decision
+
 [backend]
 type = "pyboy"          # "pyboy" (built-in emulator), "keyboard" (external emulator), or "log"
 hold_frames = 2         # PyBoy only: frames a button is held (60 frames = 1 second)
