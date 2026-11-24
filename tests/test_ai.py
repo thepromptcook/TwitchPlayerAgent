@@ -1,8 +1,8 @@
 import asyncio
 from types import SimpleNamespace
 
-from twitchplayeragent.backends.log_backend import LogBackend
-from twitchplayeragent.chat import ChatMessage
+from conftest import make_cfg, msg
+from twitchplayeragent.backends import LogBackend
 from twitchplayeragent.config import Config
 from twitchplayeragent.engine import Engine
 from twitchplayeragent.llm import Planner, build_tool, format_chat
@@ -26,16 +26,8 @@ class FakeClient:
         return SimpleNamespace(stop_reason="tool_use", content=[block])
 
 
-def msg(user, text):
-    return ChatMessage(user, user, text)
-
-
-def ai_cfg(**kw):
-    cfg = Config()
-    cfg.ai.enabled = True
-    for k, v in kw.items():
-        setattr(cfg.ai, k, v)
-    return cfg
+def ai_cfg(**ai):
+    return make_cfg(ai={"enabled": True, **ai})
 
 
 def test_tool_only_allows_real_buttons():
@@ -178,3 +170,13 @@ def test_ollama_startup_checks(fake_ollama):
     assert "ollama pull llama9:70b" in unavailable(cfg)
     cfg.ai.ollama_url = "http://127.0.0.1:9"  # nothing listening
     assert "isn't reachable" in unavailable(cfg)
+
+
+def test_game_knowledge_comes_from_config():
+    from twitchplayeragent.llm import build_system
+
+    cfg = ai_cfg()
+    cfg.game.name, cfg.game.ai_notes = "Tetris", "Left and right move the piece."
+    prompt = build_system(cfg)
+    assert "Tetris" in prompt and "Left and right move the piece." in prompt
+    assert "Pok" not in prompt  # no Pokémon text hardcoded in the core

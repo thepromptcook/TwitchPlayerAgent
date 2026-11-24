@@ -43,8 +43,7 @@ def main(argv: list[str] | None = None) -> None:
         log.info("AI mode: %s (%s) reads chat every %gs and picks the presses",
                  model_name(cfg), cfg.ai.provider, cfg.ai.window_seconds)
 
-    t = cfg.twitch
-    chat = StdinChat() if args.stdin else TwitchIrcChat(t.channel, t.nick, t.oauth_token, t.host, t.port)
+    chat = StdinChat() if args.stdin else TwitchIrcChat(cfg.twitch.channel)
     backend = make_backend(cfg)
     engine = Engine(cfg, Overlay(cfg.overlay.dir, cfg.overlay.enabled))
 

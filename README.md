@@ -117,16 +117,27 @@ with **Read from file** turned on:
 - `democracy.txt`: live vote counts and countdown (empty during anarchy)
 
 ## Chat connection
-Chat is read over Twitch IRC (TLS, port 6697). It connects anonymously by
-default, which is enough because the bot never posts. It reconnects
-automatically if the connection drops. The chat source is pluggable, so an
-EventSub reader can be added later.
+Chat is read anonymously over Twitch IRC (TLS, port 6697), so no login is
+needed; the bot never posts. It reconnects automatically if the connection
+drops.
 
 ## Development
 ```bash
 pip install -e ".[dev]"
-pytest
+pytest                                                          # ~3 s, no game or network needed
+python -m twitchplayeragent --stdin --dry-run < examples/chat.txt   # offline replay
 ```
 
-Layout: `commands.py` (parsing), `modes.py` (meter and vote tally),
-`engine.py` (decision loop), `chat.py`, `overlay.py`, and `backends/`.
+| File | Role |
+|---|---|
+| `commands.py` | chat text → button / compound input / mode vote |
+| `modes.py` | anarchy/democracy meter and democracy vote tally |
+| `engine.py` | decision logic and one input queue for every mode |
+| `llm.py` | AI mode (Claude or Ollama) |
+| `chat.py` | Twitch IRC and terminal chat sources |
+| `backends.py` | PyBoy, keyboard and dry-run input |
+| `overlay.py` | OBS text files |
+| `config.py` / `__main__.py` | TOML config and command line |
+
+Claude skills in `.claude/skills/` describe how to rebuild the project:
+`twitchplayeragent-core` (game-agnostic engine) and `pokemon-red` (game knowledge).

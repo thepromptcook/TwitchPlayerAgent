@@ -1,15 +1,15 @@
 # Copy to config.toml and edit. Every key is optional; defaults are shown.
 
 [twitch]
-channel = "your_channel_name"
-# Leave empty to read chat anonymously (read-only is all the bot needs).
-nick = ""
-oauth_token = ""
+channel = "your_channel_name"   # chat is read anonymously; the bot never posts
 
 [game]
 name = "Pokemon Red"
 # Add "select" to re-enable it. The original run disabled it after it was used to soft-reset.
 buttons = ["a", "b", "up", "down", "left", "right", "start"]
+# AI mode only: what the buttons do in this game and what chat may ask for.
+# Leave it out to use the built-in Pokémon Red notes.
+# ai_notes = "Original Game Boy game. Each press is one tap; ..."
 
 [anarchy]
 # Inputs waiting to run; when full, the oldest are dropped so lag stays bounded.

@@ -1,0 +1,16 @@
+# Sample chat for offline runs. One message per line, as "user: message".
+# Replay it:  python -m twitchplayeragent --stdin --dry-run < examples/chat.txt
+# Lines starting with # are skipped. Only exact commands press buttons.
+ash: start
+misty: a
+brock: a
+gary: hello chat
+ash: A
+oak: down
+misty: down
+brock: up2
+gary: go up pls
+ash: right
+misty: b
+oak: select
+brock: left

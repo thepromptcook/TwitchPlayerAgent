@@ -13,12 +13,15 @@ from .commands import ALL_BUTTONS
 
 @dataclass
 class TwitchConfig:
-    channel: str = ""
-    # Leave nick/oauth_token empty to read chat anonymously (read-only is all we need).
-    nick: str = ""
-    oauth_token: str = ""
-    host: str = "irc.chat.twitch.tv"
-    port: int = 6697
+    channel: str = ""  # chat is read anonymously; the bot never posts
+
+
+POKEMON_RED_AI_NOTES = (
+    "Original Game Boy game. Each press is one tap; one tap of a direction turns the "
+    "player or moves one tile. A moves on through text and confirms menu choices, B "
+    "cancels or goes back, and start opens the menu. Chat may say things like \"walk "
+    "into the tall grass\", \"use thunderbolt\" or \"run away\"."
+)
 
 
 @dataclass
@@ -28,6 +31,8 @@ class GameConfig:
     buttons: list[str] = field(
         default_factory=lambda: ["a", "b", "up", "down", "left", "right", "start"]
     )
+    # Game knowledge for AI mode: what the buttons do and what chat may ask for.
+    ai_notes: str = POKEMON_RED_AI_NOTES
 
 
 @dataclass
@@ -162,11 +167,6 @@ def load_config(path: str | Path | None) -> Config:
             data = tomllib.loads(text)
         except tomllib.TOMLDecodeError as exc:
             raise SystemExit(_explain_toml_error(path, text, exc)) from None
-        if "claude" in data:
-            raise SystemExit(
-                f"Config error in {path}: the [claude] section is now [ai]. Rename it to [ai] "
-                'and add provider = "claude" (or "ollama" for a local model).'
-            )
         try:
             cfg = _build(Config, data)
         except (TypeError, ValueError) as exc:
@@ -184,15 +184,14 @@ def _explain_toml_error(path: str | Path, text: str, exc: "tomllib.TOMLDecodeErr
         m = re.search(r"line (\d+)", str(exc))
         lineno = int(m.group(1)) if m else None
     msg = f"Could not read {path}: {exc}"
-    if lineno:
-        lines = text.splitlines()
-        if 0 < lineno <= len(lines):
-            line = lines[lineno - 1]
-            msg += f"\n  line {lineno}:  {line.strip()}"
-            if any(q in line for q in "“”‘’"):
-                msg += "\n  Hint: that line has curly quotes. Use plain straight quotes: \"like this\""
-            elif "=" in line and not line.split("=", 1)[1].strip().startswith(('"', "'", "[", "{")):
-                value = line.split("=", 1)[1].strip()
-                if value and not value[0].isdigit() and value.split()[0] not in ("true", "false"):
-                    msg += "\n  Hint: text values need quotes, e.g.  channel = \"yourname\""
+    lines = text.splitlines()
+    if not lineno or not 0 < lineno <= len(lines):
+        return msg
+    line = lines[lineno - 1]
+    msg += f"\n  line {lineno}:  {line.strip()}"
+    value = line.partition("=")[2].strip()
+    if any(q in line for q in "“”‘’"):
+        msg += "\n  Hint: that line has curly quotes. Use plain straight quotes: \"like this\""
+    elif value and value[0] not in "\"'[{" and not value[0].isdigit() and value.split()[0] not in ("true", "false"):
+        msg += "\n  Hint: text values need quotes, e.g.  channel = \"yourname\""
     return msg

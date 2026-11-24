@@ -45,17 +45,16 @@ def parse_irc_line(line: str) -> ChatMessage | None:
 
 
 class TwitchIrcChat:
-    """Reads a Twitch channel's chat over TLS IRC. Anonymous by default (read-only),
+    """Reads a Twitch channel's chat anonymously (read-only) over TLS IRC,
     reconnecting with backoff if the connection drops."""
 
-    def __init__(self, channel: str, nick: str = "", oauth_token: str = "",
-                 host: str = "irc.chat.twitch.tv", port: int = 6697) -> None:
+    HOST, PORT = "irc.chat.twitch.tv", 6697
+
+    def __init__(self, channel: str) -> None:
         if not channel:
-            raise ValueError("Set [twitch].channel in your config (or use --stdin)")
+            raise SystemExit("Set [twitch].channel in your config (or use --stdin).")
         self.channel = channel.lower().lstrip("#")
-        self.nick = nick.lower() or f"justinfan{random.randint(10000, 99999)}"
-        self.token = oauth_token
-        self.host, self.port = host, port
+        self.nick = f"justinfan{random.randint(10000, 99999)}"  # Twitch's anonymous login
 
     async def __aiter__(self) -> AsyncIterator[ChatMessage]:
         backoff = 1.0
@@ -71,16 +70,13 @@ class TwitchIrcChat:
 
     async def _session(self) -> AsyncIterator[ChatMessage]:
         reader, writer = await asyncio.open_connection(
-            self.host, self.port, ssl=ssl.create_default_context()
+            self.HOST, self.PORT, ssl=ssl.create_default_context()
         )
         try:
             def send(line: str) -> None:
                 writer.write((line + "\r\n").encode())
 
             send("CAP REQ :twitch.tv/tags twitch.tv/commands")
-            if self.token:
-                token = self.token if self.token.startswith("oauth:") else f"oauth:{self.token}"
-                send(f"PASS {token}")
             send(f"NICK {self.nick}")
             send(f"JOIN #{self.channel}")
             await writer.drain()
@@ -125,7 +121,7 @@ class StdinChat:
             if not line:
                 return
             line = line.strip()
-            if not line:
+            if not line or line.startswith("#"):
                 continue
             user, sep, text = line.partition(":")
             if not sep:

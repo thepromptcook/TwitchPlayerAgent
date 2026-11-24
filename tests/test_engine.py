@@ -1,6 +1,7 @@
 import asyncio
 
-from twitchplayeragent.backends.log_backend import LogBackend
+from conftest import drain, make_cfg, msg
+from twitchplayeragent.backends import LogBackend
 from twitchplayeragent.chat import ChatMessage, parse_irc_line
 from twitchplayeragent.config import Config
 from twitchplayeragent.engine import Engine
@@ -8,23 +9,8 @@ from twitchplayeragent.modes import Mode
 from twitchplayeragent.overlay import Overlay, render_bar
 
 
-def msg(user, text):
-    return ChatMessage(user, user, text)
-
-
 def make(**meter):
-    cfg = Config()
-    cfg.meter.min_votes = 1
-    for k, v in meter.items():
-        setattr(cfg.meter, k, v)
-    return Engine(cfg)
-
-
-def drain(e):
-    out = []
-    while (b := e.next_press()) is not None:
-        out.append(b)
-    return out
+    return Engine(make_cfg(meter={"min_votes": 1, **meter}))
 
 
 def test_anarchy_executes_everything_in_order():
@@ -35,9 +21,7 @@ def test_anarchy_executes_everything_in_order():
 
 
 def test_anarchy_queue_is_bounded():
-    e = make()
-    e.cfg.anarchy.max_queue = 3
-    e = Engine(e.cfg)
+    e = Engine(make_cfg(anarchy={"max_queue": 3}))
     for i, b in enumerate(["up", "down", "left", "right"]):
         e.handle(msg(str(i), b), 0)
     assert drain(e) == ["down", "left", "right"]
@@ -104,3 +88,15 @@ def test_run_end_to_end_with_log_backend():
     backend = LogBackend(delay=0)
     asyncio.run(asyncio.wait_for(e.run(chat(), backend), timeout=5))
     assert backend.pressed == ["up", "a", "b"]
+
+
+def test_example_chat_replays():
+    """examples/chat.txt stays valid: only its exact commands press buttons."""
+    from pathlib import Path
+
+    e = make()
+    for line in Path(__file__).parent.parent.joinpath("examples/chat.txt").read_text().splitlines():
+        if line.strip() and not line.startswith("#"):
+            user, _, text = line.partition(":")
+            e.handle(msg(user.strip(), text.strip()), 0)
+    assert drain(e) == ["start", "a", "a", "a", "down", "down", "right", "b", "left"]
