@@ -85,8 +85,10 @@ roughly. Claude does this better than local models. Keep notes short and factual
 detail, keep it to things the player must know about inputs, not walkthrough content.
 
 ## Streaming setup (OBS)
-- One Browser Source, `http://localhost:8080`, 1920×1080: the game at 1200×1080 (10:9, crisp
-  pixels) with the input list on the right like the original, plus meter, votes or AI summary.
+- One Browser Source, `http://localhost:8080`, 1920×1080: the game at an exact 7× scale with a
+  thin bar underneath (mode, meter, votes or AI summary, latest inputs). The bar never covers the
+  game, because Red's text boxes sit at the bottom. `?layout=sidebar` gives the original stream's
+  right-hand input list instead.
 - The game window can be minimized; the image comes from the emulator, not the window.
 - Sound comes through the same Browser Source: tick "Control audio via OBS"; use Audio
   Monitoring "Monitor and Output" to hear it. The game window is muted to avoid double audio.

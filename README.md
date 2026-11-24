@@ -110,8 +110,10 @@ misty: democracy
 
 ### Streaming with OBS
 While the bot runs, it serves the whole stream layout at **http://localhost:8080**:
-the game on the left, and on the right the input list, the anarchy/democracy
-meter, the democracy votes and countdown, or the AI's summary.
+the game, with a thin bar underneath showing the mode, the anarchy/democracy
+meter, the democracy votes and countdown (or the AI's summary), and the latest
+inputs. For the original stream's look, with a tall input list on the right, use
+`http://localhost:8080/?layout=sidebar` instead.
 
 1. Start the bot.
 2. In OBS, add **Sources → + → Browser**, set URL `http://localhost:8080`,

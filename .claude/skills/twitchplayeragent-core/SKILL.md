@@ -137,9 +137,11 @@ listener gets the last 3. PyBoy then starts with `sound_volume=0`: volume only s
 playback, not the samples, so OBS's Desktop Audio doesn't double the sound. Samples run 0..127, so the
 page runs a DC blocker (`y = x - x₁ + 0.995·y₁`) before Web Audio, schedules buffers back to back
 ~0.12 s ahead, and resyncs if it under- or over-runs. OBS autoplays; normal browsers need one click.
-Page: canvas 1200×1080 (`image-rendering: pixelated`, 10:9) left, transparent when no frames;
-panel 720 px right: mode name, red/blue meter with a marker at `threshold`, democracy countdown
-and top 5, or AI summary; input list bottom-aligned. Poll `/state` every 250 ms and `/frame` at
+Page (body class from `?layout=`): default `bar`: game at exactly 7× (1120×1008) centred, a 72 px
+bar *below* it (never over: Pokémon text boxes are at the bottom) with mode, meter, one-line votes
+(`14s · up2left 55% · …`) or AI summary, then newest inputs left→right fading out at the edge.
+`?layout=sidebar`: game 1200×1080 left, 720 px panel right, input list bottom-aligned. Both:
+`image-rendering: pixelated`, canvas transparent when no frames, red/blue meter with a marker at `threshold`. Poll `/state` every 250 ms and `/frame` at
 ~30 fps. Insert chat with `textContent` only. Check layout with headless Chrome screenshots.
 
 ## Config (`config.py`, TOML)

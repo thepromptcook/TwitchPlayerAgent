@@ -2,7 +2,8 @@
 
 http://localhost:<[overlay].port>/ (default 8080) shows the game screen plus the
 input list, anarchy/democracy meter, democracy votes and AI summary, laid out
-for a 1920x1080 canvas. The game image comes straight from the emulator's
+for a 1920x1080 canvas: a thin bar under the game by default, or the original
+stream's right-hand sidebar with /?layout=sidebar. The game image comes straight from the emulator's
 memory, so it keeps working when the game window is minimized or behind other
 windows. Open the same URL in a normal browser to preview it.
 
@@ -135,22 +136,43 @@ PAGE = """<!DOCTYPE html>
 <style>
   html, body { margin: 0; width: 1920px; height: 1080px; overflow: hidden; background: transparent;
     font: 28px/1.3 Consolas, "Courier New", monospace; color: #f2f2f2; }
-  #game { position: absolute; left: 0; top: 0; width: 1200px; height: 1080px; background: #000;
-    image-rendering: pixelated; display: none; }
-  #panel { position: absolute; left: 1200px; top: 0; width: 720px; height: 1080px; box-sizing: border-box;
-    padding: 28px 32px; background: #15151c; display: flex; flex-direction: column; gap: 22px; }
-  #mode { font-size: 52px; font-weight: bold; letter-spacing: 3px; }
+  #game { position: absolute; background: #000; image-rendering: pixelated; display: none; }
+  #panel { position: absolute; box-sizing: border-box; background: #15151c; display: flex; }
+  #mode { font-weight: bold; }
   .anarchy { color: #ff5a5a; } .democracy { color: #5aa0ff; } .ai { color: #c58bff; }
-  #meter { position: relative; height: 34px; background: #ff5a5a; border-radius: 4px; overflow: hidden; }
+  #meter { position: relative; background: #ff5a5a; border-radius: 4px; overflow: hidden; }
   #meter .dem { position: absolute; right: 0; top: 0; bottom: 0; background: #5aa0ff; }
   #meter .mark { position: absolute; top: 0; bottom: 0; width: 4px; background: #fff; }
   #meter-labels { display: flex; justify-content: space-between; font-size: 20px; color: #aaa; margin-top: 6px; }
-  #info { color: #ddd; white-space: pre-wrap; }
+  #info { color: #ddd; }
   #info .row { display: flex; justify-content: space-between; }
-  #inputs { flex: 1; overflow: hidden; display: flex; flex-direction: column; justify-content: flex-end; }
+  #inputs { overflow: hidden; display: flex; }
   #inputs div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   #inputs .user { color: #9a9aa8; }
   #inputs .sys { color: #ffd166; }
+
+  /* Default: a thin bar under the game. The game is scaled exactly 7x (1120x1008) and
+     the bar sits below it, never over it: Pokemon's text boxes are at the bottom. */
+  .bar #game { left: 400px; top: 0; width: 1120px; height: 1008px; }
+  .bar #panel { left: 0; top: 1008px; width: 1920px; height: 72px; padding: 0 28px;
+    align-items: center; gap: 28px; font-size: 26px; }
+  .bar #mode { font-size: 34px; letter-spacing: 2px; flex: none; }
+  .bar #meterbox { width: 260px; flex: none; }
+  .bar #meter { height: 22px; }
+  .bar #meter-labels { display: none; }
+  .bar #info { flex: none; max-width: 1100px; white-space: pre; overflow: hidden; text-overflow: ellipsis; }
+  .bar #inputs { flex: 1; align-items: center; gap: 26px;
+    -webkit-mask-image: linear-gradient(to right, #000 88%, transparent); }
+  .bar #inputs div { flex: none; }
+
+  /* ?layout=sidebar: the original stream's look, game left and a 720 px panel right. */
+  .sidebar #game { left: 0; top: 0; width: 1200px; height: 1080px; }
+  .sidebar #panel { left: 1200px; top: 0; width: 720px; height: 1080px; padding: 28px 32px;
+    flex-direction: column; gap: 22px; }
+  .sidebar #mode { font-size: 52px; letter-spacing: 3px; }
+  .sidebar #meter { height: 34px; }
+  .sidebar #info { white-space: pre-wrap; }
+  .sidebar #inputs { flex: 1; flex-direction: column; justify-content: flex-end; }
 </style></head><body>
 <canvas id="game" width="160" height="144"></canvas>
 <div id="panel">
@@ -162,6 +184,7 @@ PAGE = """<!DOCTYPE html>
 </div>
 <script>
 const $ = id => document.getElementById(id);
+document.body.className = new URLSearchParams(location.search).get("layout") === "sidebar" ? "sidebar" : "bar";
 function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls;
   if (text !== undefined) e.textContent = text; return e; }
 
@@ -174,28 +197,32 @@ async function pollState() {
 }
 
 function render(s) {
+  const bar = document.body.className === "bar";
   const mode = $("mode"); mode.textContent = s.mode.toUpperCase(); mode.className = s.mode;
   $("meterbox").style.display = s.mode === "ai" ? "none" : "";
   $("meter").querySelector(".dem").style.width = (s.share * 100) + "%";
   $("meter").querySelector(".mark").style.right = (s.threshold * 100) + "%";
   const info = $("info"); info.replaceChildren();
-  if (s.mode === "ai") info.append(el("div", "", s.summary || "Waiting for chat"));
-  if (s.mode === "democracy") {
-    info.append(el("div", "", s.seconds_left == null ? "Waiting for votes"
-                                : "Next input in " + Math.ceil(s.seconds_left) + "s"));
+  const pct = n => Math.round(100 * n / Math.max(1, s.total_votes)) + "%";
+  const countdown = s.seconds_left == null ? "Waiting for votes" : Math.ceil(s.seconds_left) + "s";
+  if (s.mode === "ai") info.textContent = s.summary || "Waiting for chat";
+  else if (s.mode === "democracy" && bar) {  // one line: "13s  up2left 55%  start9 32%"
+    info.textContent = [countdown, ...s.votes.slice(0, 3).map(([k, n]) => k + " " + pct(n))].join(" · ");
+  } else if (s.mode === "democracy") {
+    info.append(el("div", "", s.seconds_left == null ? countdown : "Next input in " + countdown));
     for (const [key, n] of s.votes.slice(0, 5)) {
-      const row = el("div", "row"); row.append(el("span", "", key),
-        el("span", "", n + "  " + Math.round(100 * n / Math.max(1, s.total_votes)) + "%"));
+      const row = el("div", "row"); row.append(el("span", "", key), el("span", "", n + "  " + pct(n)));
       info.append(row);
     }
   }
   const list = $("inputs"); list.replaceChildren();
-  for (const line of s.inputs) {
+  // Bar: newest first, left to right; sidebar: oldest at the top, newest at the bottom.
+  for (const line of bar ? [...s.inputs].reverse().slice(0, 12) : s.inputs) {
     const sys = line.startsWith(">>") || line.startsWith("***");
     const [user, ...rest] = line.split("  ");
     const row = el("div", sys ? "sys" : "");
     if (sys || !rest.length) row.textContent = line;
-    else row.append(el("span", "user", user + "  "), el("span", "", rest.join("  ")));
+    else row.append(el("span", "user", user + " "), el("span", "", rest.join("  ")));
     list.append(row);
   }
 }
