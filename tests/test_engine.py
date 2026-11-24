@@ -90,3 +90,18 @@ def test_example_chat_replays():
             user, _, text = line.partition(":")
             e.handle(msg(user.strip(), text.strip()), 0)
     assert drain(e) == ["start", "a", "a", "a", "down", "down", "right", "b", "left"]
+
+
+def test_ctrl_c_stops_gently_then_forces():
+    import threading
+
+    import pytest
+
+    from twitchplayeragent.__main__ import stop_on_ctrl_c
+
+    stop = threading.Event()
+    handler = stop_on_ctrl_c(stop)
+    handler(2, None)  # first Ctrl+C: ask the game loop to save and quit
+    assert stop.is_set()
+    with pytest.raises(KeyboardInterrupt):  # second: force
+        handler(2, None)

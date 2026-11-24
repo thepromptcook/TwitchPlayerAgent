@@ -7,6 +7,7 @@ import asyncio
 import logging
 import logging.handlers
 import queue
+import signal
 import sys
 import threading
 
@@ -31,6 +32,20 @@ def setup_logging(verbose: bool) -> logging.handlers.QueueListener:
     listener = logging.handlers.QueueListener(lines, console)
     listener.start()
     return listener
+
+
+def stop_on_ctrl_c(stop: threading.Event):
+    """A SIGINT handler: the first Ctrl+C asks the game loop to save and quit; a second
+    one forces it. Needed because a KeyboardInterrupt that lands inside PyBoy's frame
+    limiter (compiled code) is printed as "Exception ignored" and swallowed."""
+
+    def handler(signum, frame) -> None:
+        if stop.is_set():
+            raise KeyboardInterrupt
+        log.info("Ctrl+C: saving and quitting (press again to force)")
+        stop.set()
+
+    return handler
 
 
 def disable_quick_edit() -> None:
@@ -105,6 +120,7 @@ def main(argv: list[str] | None = None) -> None:
     try:
         if backend.needs_main_thread:
             threading.Thread(target=run_engine, name="engine", daemon=True).start()
+            signal.signal(signal.SIGINT, stop_on_ctrl_c(stop))
             backend.run_main_loop(stop)  # returns when the window closes or stop is set
         else:
             run_engine()

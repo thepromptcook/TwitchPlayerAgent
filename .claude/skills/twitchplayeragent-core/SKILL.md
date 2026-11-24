@@ -117,6 +117,9 @@ One `deque` of presses (`maxlen = [anarchy].max_queue`, oldest dropped):
 Logging goes through `QueueHandler` → `QueueListener`, so a log call never blocks on the terminal.
 Windows: `disable_quick_edit()` clears ENABLE_QUICK_EDIT_MODE; a click in a QuickEdit console pauses
 every write to it, which froze the PyBoy window ("Not Responding") while chat kept arriving.
+Ctrl+C with PyBoy: `stop_on_ctrl_c(stop)` is the SIGINT handler (first press sets `stop` so the loop
+saves and exits; second raises KeyboardInterrupt). A KeyboardInterrupt landing in PyBoy's Cython
+`frame_limiter` is printed as "Exception ignored" and swallowed, so the default handler needed many presses.
 
 ## Overlay (`overlay.py`)
 One OBS **Browser Source** (`http://localhost:<port>`, 1920×1080) replaces window capture and
