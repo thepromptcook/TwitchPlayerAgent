@@ -22,8 +22,10 @@ Each looked fine in Linux tests. Don't undo these fixes.
 - **Stdin on an executor thread hangs exit** (executor threads are joined); use a daemon thread.
 - **`basicConfig` gives a formatter-less `QueueHandler` its default `INFO:name:` format**, so every
   line printed its prefix twice. The queue handler gets `Formatter("%(message)s")`.
-- **Virtual controller (GTA VI on Xbox):** ViGEmBus is retired upstream but still installs with
-  vgamepad. Whether the Xbox app's Remote Play reads it while not focused is unverified.
+- **The Xbox app only finds controllers when it starts.** The virtual pad worked in `joy.cpl`
+  but Remote Play ignored it until the Xbox app was fully quit and reopened with the bot already
+  running. `GamepadBackend.start` logs this reminder. ViGEmBus is retired upstream but still
+  installs with vgamepad.
 
 ## Overlay and OBS
 - **Polling one request per frame managed ~30 fps** and looked choppy on stream: hence the

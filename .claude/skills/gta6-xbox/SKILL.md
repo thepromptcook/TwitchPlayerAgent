@@ -12,8 +12,10 @@ owner's main config: `python -m twitchplayeragent -c config.toml -c games/gta6.t
 
 ## Setup on the owner's PC
 1. Xbox: Settings > Devices & connections > Remote features > Enable remote features.
-2. PC: `pip install -e ".[gamepad]"` (vgamepad runs the ViGEmBus installer; accept it). Xbox app
-   → Remote Play → the console; start GTA VI.
+2. PC: `pip install -e ".[gamepad]"` (vgamepad runs the ViGEmBus installer; accept it). **Start
+   the bot first, then the Xbox app**: the app only enumerates controllers at startup, so it must
+   be fully quit (tray/Task Manager) and reopened once the virtual pad exists; closing the Remote
+   Play window isn't enough. Verified on the owner's PC. Then Remote Play → console → GTA VI.
 3. GTA VI: **Default** control scheme (Settings > Control Scheme). Classic moves run to A and
    jump to X, so `sprint` and `jump` would need new buttons. **Story mode only**: GTA Online has
    anti-cheat and other players.
@@ -49,7 +51,8 @@ Not mapped on purpose: View (map), Menu (pause), D-pad (phone, radio), hold LB (
   `ai_notes` explains toggles. The AI can't see the screen, so explicit commands work best.
 
 ## Unverified (only checkable on the owner's PC)
-- The Xbox app accepting the virtual controller, and whether it needs focus.
+- Whether the Xbox app needs focus to read it (it does accept the virtual controller, after a
+  restart; checked in Windows with `joy.cpl`, which shows the pad's buttons and axes moving).
 - The button map, taken from published Default-scheme guides; handbrake on A and LS-click
   running are the least certain.
 - Remote Play adds roughly 50–100 ms on top of Twitch's delay.

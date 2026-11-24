@@ -148,14 +148,17 @@ Xbox app forwards it to the console like a controller plugged into the PC.
 1. On the Xbox: **Settings → Devices & connections → Remote features → Enable
    remote features**.
 2. On the PC: `pip install -e ".[gamepad]"`. This also runs the ViGEmBus driver
-   installer; accept it. Then connect to your Xbox with Remote Play in the Xbox
-   app and start GTA 6 in story mode, with the **Default** control scheme.
-3. Run it with your usual config plus the game file, which keeps your channel and
-   overlay:
+   installer; accept it.
+3. **Start the bot first**, with your usual config plus the game file (which keeps
+   your channel and overlay):
    ```bash
    python -m twitchplayeragent -c config.toml -c games/gta6.toml
    ```
-4. Keep the Xbox app's Remote Play window in front while streaming.
+4. **Then start the Xbox app.** It only looks for controllers when it starts, so if
+   it was already open, quit it completely (tray icon → Exit, or end "Xbox" in Task
+   Manager) and reopen it. Closing the Remote Play window isn't enough.
+5. Connect to your Xbox with Remote Play and start GTA 6 in story mode, with the
+   **Default** control scheme. Keep the Remote Play window in front while streaming.
 
 Chat commands keep the Twitch Plays Pokémon words: `up` `down` `left` `right`
 move briefly, `a` shoots and `b` toggles aim. `goup`, `sprint`, `drive` and

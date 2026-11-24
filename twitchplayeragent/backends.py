@@ -123,6 +123,10 @@ class GamepadBackend(Backend):
         self.vg = vgamepad
         self.pad = vgamepad.VX360Gamepad()
         self._apply(set(), {})
+        # The Xbox app only looks for controllers when it starts: closing Remote Play isn't
+        # enough, the whole app has to be quit and reopened after the bot is running.
+        log.info("Virtual Xbox controller connected. If the Xbox app was already open, quit it "
+                 "completely (tray icon or Task Manager) and reopen it so Remote Play sees it.")
 
     def stop(self) -> None:
         if self.pad is not None:  # let go of everything when the bot exits
