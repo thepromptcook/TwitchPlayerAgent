@@ -10,8 +10,10 @@ windows. Open the same URL in a normal browser to preview it.
 Game sound goes through the page too (``[overlay].audio``), so the one Browser
 Source carries picture and sound.
 
-Endpoints: /  (the page)  /state  (JSON, polled 4x a second)  /frame  (raw RGBA
-pixels of the latest game frame; 204 when there's none, e.g. keyboard backend)
+Endpoints: /  (the page)  /state  (JSON, polled 4x a second)  /frames  (a stream
+that pushes every game frame as it's drawn: 4-byte header width,height as
+little-endian uint16, then width*height RGBA bytes)  /frame  (just the latest
+frame; 204 when there's none, e.g. keyboard backend)
 /audio?after=N  (signed 8-bit stereo samples newer than chunk N, header X-Seq).
 
 Only 127.0.0.1 is served. Chat text is inserted with textContent, never as HTML.
@@ -21,6 +23,7 @@ from __future__ import annotations
 
 import json
 import logging
+import struct
 import sys
 import threading
 from collections import deque
@@ -35,6 +38,8 @@ class Overlay:
         self.audio = audio
         self.state: dict = {}
         self.frame: tuple[int, int, bytes] | None = None  # width, height, RGBA bytes
+        self._frame_seq = 0
+        self._frame_ready = threading.Condition()
         self.audio_rate = 0
         self._audio: deque[tuple[int, bytes]] = deque(maxlen=300)  # (seq, chunk), ~5 s at 60/s
         self._audio_seq = 0
@@ -45,7 +50,17 @@ class Overlay:
         self.state = state  # replaced whole, so readers never see a half update
 
     def set_frame(self, width: int, height: int, rgba: bytes) -> None:
-        self.frame = (width, height, rgba)
+        with self._frame_ready:
+            self.frame = (width, height, rgba)
+            self._frame_seq += 1
+            self._frame_ready.notify_all()  # wake every /frames stream
+
+    def next_frame(self, after: int, timeout: float = 1.0) -> tuple[int, tuple[int, int, bytes] | None]:
+        """Wait for a frame newer than ``after``; returns (seq, frame) or (after, None)."""
+        with self._frame_ready:
+            if not self._frame_ready.wait_for(lambda: self._frame_seq != after, timeout):
+                return after, None
+            return self._frame_seq, self.frame
 
     def add_audio(self, rate: int, samples: bytes) -> None:
         """One emulated frame of sound: interleaved stereo, signed 8-bit."""
@@ -77,6 +92,8 @@ class Overlay:
                     self._send(200, "text/html; charset=utf-8", page.encode())
                 elif path == "/state":
                     self._send(200, "application/json", json.dumps(overlay.state).encode())
+                elif path == "/frames":
+                    self._stream_frames()
                 elif path == "/frame" and overlay.frame is not None:
                     w, h, data = overlay.frame
                     self._send(200, "application/octet-stream", data, {"X-Width": w, "X-Height": h})
@@ -90,6 +107,25 @@ class Overlay:
                     self._send(204, "text/plain", b"")
                 else:
                     self._send(404, "text/plain", b"not found")
+
+            def _stream_frames(self) -> None:
+                # One long response (HTTP/1.0: ends when the connection closes), so frames
+                # arrive the moment they're drawn, with no per-frame request round trip.
+                self.send_response(200)
+                self.send_header("Content-Type", "application/octet-stream")
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                seq = -1
+                while overlay._server is not None:
+                    seq, frame = overlay.next_frame(seq)
+                    if frame is None:
+                        continue
+                    w, h, data = frame
+                    try:
+                        self.wfile.write(struct.pack("<HH", w, h) + data)
+                        self.wfile.flush()
+                    except OSError:  # page closed or reloaded
+                        return
 
             def _send(self, code: int, ctype: str, body: bytes, extra: dict | None = None) -> None:
                 self.send_response(code)
@@ -227,25 +263,42 @@ function render(s) {
   }
 }
 
-async function pollFrames() {
+// Game picture: one long /frames response pushes every frame as it's drawn (60 fps).
+// Each frame is a 4-byte header (width, height) and width*height*4 RGBA bytes.
+async function streamFrames() {
   const canvas = $("game"), ctx = canvas.getContext("2d");
-  let last = 0;
-  for (;;) {
-    await new Promise(r => requestAnimationFrame(r));
-    const now = performance.now();
-    if (now - last < 33) continue;  // ~30 fps is plenty for a Game Boy
-    last = now;
-    try {
-      const r = await fetch("/frame", {cache: "no-store"});
-      if (r.status !== 200) { canvas.style.display = "none"; continue; }
-      const w = +r.headers.get("X-Width"), h = +r.headers.get("X-Height");
-      const px = new Uint8ClampedArray(await r.arrayBuffer());
+  let latest = null;
+  (function draw() {  // paint the newest frame once per display refresh
+    if (latest) {
+      const {w, h, px} = latest; latest = null;
       if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
       ctx.putImageData(new ImageData(px, w, h), 0, 0);
       canvas.style.display = "block";
-    } catch (e) { canvas.style.display = "none"; }
+    }
+    requestAnimationFrame(draw);
+  })();
+  for (;;) {
+    try {
+      const reader = (await fetch("/frames", {cache: "no-store"})).body.getReader();
+      let buf = new Uint8Array(0);
+      for (;;) {
+        const {value, done} = await reader.read();
+        if (done) break;
+        const joined = new Uint8Array(buf.length + value.length);
+        joined.set(buf); joined.set(value, buf.length); buf = joined;
+        while (buf.length >= 4) {
+          const w = buf[0] | buf[1] << 8, h = buf[2] | buf[3] << 8, end = 4 + w * h * 4;
+          if (buf.length < end) break;
+          latest = {w, h, px: new Uint8ClampedArray(buf.buffer.slice(buf.byteOffset + 4, buf.byteOffset + end))};
+          buf = buf.subarray(end);
+        }
+      }
+    } catch (e) {}
+    canvas.style.display = "none";  // bot restarting: retry in a second
+    await new Promise(r => setTimeout(r, 1000));
   }
 }
+
 // Game sound: poll new samples and schedule them back to back with a small
 // buffer. PyBoy's samples run 0..127 (never negative), so a DC blocker centres
 // the wave; otherwise playback clicks. OBS allows autoplay; in a normal browser,
@@ -279,6 +332,6 @@ async function pollAudio() {
     } catch (e) {}
   }
 }
-pollState(); pollFrames(); if (AUDIO) pollAudio();
+pollState(); streamFrames(); if (AUDIO) pollAudio();
 </script></body></html>
 """

@@ -126,10 +126,12 @@ One OBS **Browser Source** (`http://localhost:<port>`, 1920×1080) replaces wind
 text sources. `ThreadingHTTPServer` on 127.0.0.1 in a daemon thread; `allow_reuse_address` off on Windows only
 (there SO_REUSEADDR lets two programs share a live port; elsewhere it just skips TIME_WAIT); port in use → SystemExit naming
 `[overlay].port`; port 0 picks a free one (tests). Routes: `/` the inline `PAGE`; `/state` the
-engine's `overlay_state` (pushed by the clock every 0.25 s); `/frame` raw RGBA + `X-Width`/`X-Height`
-headers, 204 if none; `/audio?after=N` sound chunks newer than N (`X-Seq`, `X-Rate`); `/favicon.ico` 204.
+engine's `overlay_state` (pushed by the clock every 0.25 s); `/frames` one long HTTP/1.0 response
+pushing every frame as `<HH` width,height + RGBA (a `Condition` wakes each stream on `set_frame`;
+polling `/frame` per request only managed ~30 fps and looked laggy on stream); `/frame` the latest
+frame with `X-Width`/`X-Height`, 204 if none; `/audio?after=N` sound chunks newer than N (`X-Seq`, `X-Rate`); `/favicon.ico` 204.
 The backend's `on_frame(w, h, rgba)` hook
-(`Overlay.set_frame`) gets every 2nd PyBoy frame from `pyboy.screen.ndarray` (a live (144,160,4)
+(`Overlay.set_frame`) gets every PyBoy frame (60 fps) from `pyboy.screen.ndarray` (a live (144,160,4)
 view; `tobytes()` copies), so the game shows even when its window is minimized.
 Sound (`[overlay].audio`): `on_audio(rate, samples)` gets each frame's `pyboy.sound.raw_buffer[:raw_buffer_head]`
 (interleaved stereo int8, ~800 frames at 48 kHz); `Overlay` keeps ~5 s of chunks; a new or lagging
@@ -141,8 +143,9 @@ Page (body class from `?layout=`): default `bar`: game at exactly 7× (1120×100
 bar *below* it (never over: Pokémon text boxes are at the bottom) with mode, meter, one-line votes
 (`14s · up2left 55% · …`) or AI summary, then newest inputs left→right fading out at the edge.
 `?layout=sidebar`: game 1200×1080 left, 720 px panel right, input list bottom-aligned. Both:
-`image-rendering: pixelated`, canvas transparent when no frames, red/blue meter with a marker at `threshold`. Poll `/state` every 250 ms and `/frame` at
-~30 fps. Insert chat with `textContent` only. Check layout with headless Chrome screenshots.
+`image-rendering: pixelated`, canvas transparent when no frames, red/blue meter with a marker at `threshold`. Poll `/state` every 250 ms; read `/frames` and paint once per
+display refresh (the newest streamed frame). Insert chat with `textContent` only. Check layout with
+headless Chrome screenshots; `test_page_script_is_valid_javascript` runs `node --check` on the script.
 
 ## Config (`config.py`, TOML)
 | Section | Fields (default) |

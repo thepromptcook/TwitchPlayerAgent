@@ -170,7 +170,7 @@ class PyBoyBackend(Backend):
                 ticks += 1
                 if ticks % 60 == 0:  # re-arm the watchdog every second
                     faulthandler.dump_traceback_later(10, file=hang_report)
-                if self.on_frame is not None and ticks % 2 == 0:  # 30 fps to the overlay
+                if self.on_frame is not None:  # every frame (60 fps) to the overlay
                     screen = pyboy.screen.ndarray  # live (144, 160, 4) RGBA view; tobytes copies
                     self.on_frame(screen.shape[1], screen.shape[0], screen.tobytes())
                 if self.on_audio is not None:  # this frame's samples, interleaved stereo int8

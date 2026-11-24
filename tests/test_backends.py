@@ -65,7 +65,7 @@ def test_pyboy_loop_presses_frames_and_saves(tmp_path, monkeypatch):
     assert u1 - d1 == 2  # held for hold_frames
     assert d2 - d1 >= 5  # next press never before hold + release frames
     assert frames and frames[0] == (160, 144, 160 * 144 * 4)
-    assert len(frames) == (emu.frame - 1) // 2  # every other frame (30 fps); none after close
+    assert len(frames) == emu.frame - 1  # every frame (60 fps); none after the window closes
     assert audio and set(audio) == {(48000, 1600)}  # every frame's samples
     assert (tmp_path / "saves" / "red.state").read_bytes() == b"state"  # saved on exit
     assert emu.stopped and stop.is_set()

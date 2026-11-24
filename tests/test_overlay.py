@@ -77,3 +77,44 @@ def test_audio_can_be_off():
         assert b"const AUDIO = false" in get(o, "/")[2]
     finally:
         o.stop()
+
+
+def test_page_script_is_valid_javascript(tmp_path):
+    """A JS syntax error stops the whole page (no game, no panel), and Python tests
+    can't see it. Checked with Node.js when it's installed."""
+    import shutil
+    import subprocess
+
+    from twitchplayeragent.overlay import PAGE
+
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("Node.js not installed")
+    script = tmp_path / "page.js"
+    script.write_text("const AUDIO = true;\n" + PAGE[PAGE.index("<script>") + 8:PAGE.index("</script>")])
+    result = subprocess.run([node, "--check", str(script)], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+
+
+def test_frame_stream_pushes_every_frame(overlay):
+    import socket
+    import struct
+    import threading
+    import time
+
+    def feed():
+        for i in range(30):
+            overlay.set_frame(2, 1, bytes([i]) * 8)
+            time.sleep(0.01)
+
+    s = socket.create_connection(("127.0.0.1", overlay.port), timeout=5)
+    s.sendall(b"GET /frames HTTP/1.0\r\n\r\n")
+    threading.Thread(target=feed, daemon=True).start()
+    data = b""
+    while data.count(struct.pack("<HH", 2, 1)) < 20 and len(data) < 10_000:
+        data += s.recv(4096)
+    s.close()
+    body = data.split(b"\r\n\r\n", 1)[1]
+    frames = [body[i:i + 12] for i in range(0, len(body) - 11, 12)]
+    values = [f[4] for f in frames if f[:4] == struct.pack("<HH", 2, 1)]
+    assert len(values) >= 19 and values == sorted(values)  # in order, none batched or merged
