@@ -26,7 +26,9 @@ STATES = {
     "democracy": {"mode": "democracy", "share": 0.82, "threshold": 0.5, "total_votes": 22, "seconds_left": 13.4,
                   "votes": [["up2left", 12], ["start9", 7], ["a", 3]], "summary": ""},
     "ai": {"mode": "ai", "share": 0, "threshold": 0.8, "votes": [], "total_votes": 0, "seconds_left": None,
-           "summary": "Chat wants to heal first, so heading back to the Pokémon Center."},
+           "summary": "Chat wants to heal first, so heading back to the Pokémon Center.",
+           "ticker": "Welcome to Twitch Plays! Type up, down, left, right, a or b to play. "
+                     "Vote anarchy or democracy to change how inputs are counted."},
 }
 INPUTS = ["ash  up", "Misty  a", "BrockRocks  start", "*** DEMOCRACY ***", "gary  up2left",
           "oak  democracy", "red  wait", ">> up2left", "someone_with_a_very_long_name  a2b"]

@@ -122,6 +122,11 @@ inputs. For the original stream's look, with a tall input list on the right, use
    you can **minimize the game window**. Window Capture isn't needed, and
    neither are its laptop black-screen fixes.
 
+**Scrolling message:** set `ticker = "..."` under `[overlay]` for a message that scrolls
+along the bottom of the stream. Change it live by typing `!ticker Your new message` in your
+own Twitch chat (from your phone works too); `!ticker` on its own clears it. Only you and
+your moderators can change it, and the latest message is kept when the bot restarts.
+
 **Sound comes through the same Browser Source.** Tick **Control audio via
 OBS** in its properties, and the game shows up in OBS's audio mixer like any
 other source. The game window is muted, so Desktop Audio won't capture it a

@@ -34,6 +34,19 @@
 
   /* ?layout=sidebar: the original stream's look, game left and a 720 px panel right. */
   .sidebar #game { left: 0; top: 0; width: 1200px; height: 1080px; }
+  /* With a ticker message, a 44 px strip runs along the very bottom and the game shrinks
+     (keeping 10:9) so nothing covers it. */
+  #ticker { position: absolute; left: 0; top: 1036px; width: 1920px; height: 44px; overflow: hidden;
+    background: #0c0c11; color: #ffd166; font-size: 24px; line-height: 44px; display: none; }
+  .ticker #ticker { display: block; }
+  #ticker-track { display: inline-block; white-space: nowrap; will-change: transform;
+    animation: ticker-scroll 20s linear infinite; }
+  #ticker-track span { padding-right: 160px; }
+  @keyframes ticker-scroll { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+  .bar.ticker #game { left: 424px; width: 1071px; height: 964px; }
+  .bar.ticker #panel { top: 964px; }
+  .sidebar.ticker #game { width: 1151px; height: 1036px; }
+  .sidebar.ticker #panel { left: 1151px; width: 769px; height: 1036px; }
   .sidebar #panel { left: 1200px; top: 0; width: 720px; height: 1080px; padding: 28px 32px;
     flex-direction: column; gap: 22px; }
   .sidebar #mode { font-size: 52px; letter-spacing: 3px; }
@@ -42,6 +55,7 @@
   .sidebar #inputs { flex: 1; flex-direction: column; justify-content: flex-end; }
 </style></head><body>
 <canvas id="game" width="160" height="144"></canvas>
+<div id="ticker"><div id="ticker-track"></div></div>
 <div id="panel">
   <div id="mode"></div>
   <div id="meterbox"><div id="meter"><div class="dem"></div><div class="mark"></div></div>
@@ -64,8 +78,21 @@ async function pollState() {
   setTimeout(pollState, 250);
 }
 
+// Scrolling message: two copies side by side, moved left by half the track, loop seamlessly.
+let shownTicker = "";
+function showTicker(text) {
+  shownTicker = text;
+  document.body.classList.toggle("ticker", !!text);
+  const track = $("ticker-track");
+  track.replaceChildren(...(text ? [el("span", "", text), el("span", "", text)] : []));
+  if (!text) return;
+  track.style.animation = "none"; void track.offsetWidth; track.style.animation = "";  // restart
+  track.style.animationDuration = Math.max(8, track.scrollWidth / 2 / 120) + "s";  // ~120 px/s
+}
+
 function render(s) {
-  const bar = document.body.className === "bar";
+  const bar = document.body.classList.contains("bar");
+  if ((s.ticker || "") !== shownTicker) showTicker(s.ticker || "");
   const mode = $("mode"); mode.textContent = s.mode.toUpperCase(); mode.className = s.mode;
   $("meterbox").style.display = s.mode === "ai" ? "none" : "";
   $("meter").querySelector(".dem").style.width = (s.share * 100) + "%";

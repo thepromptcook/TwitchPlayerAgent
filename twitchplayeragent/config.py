@@ -144,6 +144,11 @@ class OverlayConfig:
     # Game sound plays through the Browser Source, and the game window itself is muted
     # so OBS's Desktop Audio doesn't capture it twice. false = sound from the window.
     audio: bool = True
+    # Scrolling message along the bottom. Change it mid-stream by typing "!ticker <text>"
+    # in your own chat (you or a moderator); "!ticker" alone clears it. The latest one is
+    # saved to ticker_file, so it survives a restart (delete the file to use this again).
+    ticker: str = ""
+    ticker_file: str = "saves/ticker.txt"
 
 
 @dataclass

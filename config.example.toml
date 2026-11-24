@@ -78,3 +78,6 @@ enabled = true
 port = 8080
 max_lines = 20
 audio = true            # game sound through the Browser Source (the game window is muted)
+ticker = ""             # scrolling message along the bottom; change it live with "!ticker <text>"
+                        # in your own chat (you or a mod), "!ticker" alone clears it
+ticker_file = "saves/ticker.txt"   # where the latest !ticker message is kept across restarts

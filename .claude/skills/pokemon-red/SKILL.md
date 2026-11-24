@@ -51,6 +51,7 @@ models. Keep notes short, about inputs, not walkthrough content.
 - OBS: Video 60 FPS (30 halves the game's frames), NVENC, ~6000 Kbps, keyframe interval 2,
   Stream Delay off. Twitch: Creator Dashboard → Settings → Stream → Low latency (2–4 s delay).
 - To hear the game while streaming: Audio Monitoring "Monitor and Output" on the source.
+- Scrolling message: `[overlay].ticker`; live changes with `!ticker <text>` in the owner's chat.
 - Phone control: an OBS WebSocket remote (OBS Blade on Android), and Claude working on the PC
   through the Claude desktop app with the repo folder connected.
 - `type = "keyboard"` with mGBA works too, but mGBA must keep keyboard focus and needs Window

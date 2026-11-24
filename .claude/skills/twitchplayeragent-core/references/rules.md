@@ -31,6 +31,10 @@ One `deque` of presses, `maxlen = [anarchy].max_queue` (oldest dropped):
 - AI: every message goes to the `Planner`; `apply_ai` **replaces** the queue; the meter is off
   and mode votes are ordinary chat.
 - A mode switch clears queue, tally and round.
+- `!ticker <text>` (first word, any case) is never a game command: from a moderator
+  (`ChatMessage.mod`: the `mod` tag or a `broadcaster/` badge; terminal chat counts) it calls
+  `set_ticker`, which normalizes spaces, caps 500 chars and writes `ticker_file`; `!ticker`
+  alone clears. At start the saved file (even empty) beats `[overlay].ticker`.
 - `recent` holds overlay lines (`user  input`, `>> winner`, `*** MODE ***`);
   `overlay_state(now)` is the JSON the page shows; `busy` means work is pending.
 - `run(chat, backend)`: chat reader, 0.25 s clock (tick + overlay state), press worker

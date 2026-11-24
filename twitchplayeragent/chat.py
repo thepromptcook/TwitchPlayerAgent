@@ -19,6 +19,7 @@ class ChatMessage:
     user: str  # stable login name, used for one-vote-per-user
     display: str  # display name, shown on the overlay
     text: str
+    mod: bool = False  # the channel owner or a moderator (may change the ticker)
 
 
 def parse_irc_line(line: str) -> ChatMessage | None:
@@ -41,7 +42,8 @@ def parse_irc_line(line: str) -> ChatMessage | None:
     if not login:
         return None
     display = tags.get("display-name") or login
-    return ChatMessage(user=login, display=display, text=text)
+    mod = tags.get("mod") == "1" or "broadcaster/" in tags.get("badges", "")
+    return ChatMessage(user=login, display=display, text=text, mod=mod)
 
 
 class TwitchIrcChat:
@@ -127,4 +129,5 @@ class StdinChat:
             if not sep:
                 user, text = "you", line
             user = user.strip() or "you"
-            yield ChatMessage(user=user.lower(), display=user, text=text.strip())
+            # Whoever types in the terminal runs the bot, so they count as a moderator.
+            yield ChatMessage(user=user.lower(), display=user, text=text.strip(), mod=True)

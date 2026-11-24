@@ -11,7 +11,7 @@
 | `[backend]` | type ("pyboy" / "keyboard" / "gamepad" / "log"), hold_frames (2), release_frames (2) |
 | `[backend.pyboy]` | rom, state_file, autosave_minutes (5), window ("SDL2"), scale (4), window_keyboard (false) |
 | `[backend.keyboard]` | keys (button → key), hold_ms (50), gap_ms (50) |
-| `[overlay]` | enabled (true), port (8080), max_lines (20), audio (true) |
+| `[overlay]` | enabled (true), port (8080), max_lines (20), audio (true), ticker (""), ticker_file ("saves/ticker.txt") |
 
 - Nested dataclasses are built recursively; unknown keys are errors; `validate()` checks
   enums and ranges.

@@ -17,6 +17,7 @@ import asyncio
 import logging
 import time
 from collections import deque
+from pathlib import Path
 from typing import AsyncIterable
 
 from .backends import Backend
@@ -44,6 +45,8 @@ class Engine:
         self.ai_summary = ""
         self.recent: deque[str] = deque(maxlen=cfg.overlay.max_lines)
         self.overlay = overlay
+        saved = Path(cfg.overlay.ticker_file)  # a mid-stream change beats the config default
+        self.ticker = saved.read_text(encoding="utf-8").strip() if saved.is_file() else cfg.overlay.ticker
         self._wake: asyncio.Event | None = None
 
     @property
@@ -54,6 +57,10 @@ class Engine:
 
     def handle(self, msg: ChatMessage, now: float) -> None:
         """Process one chat message."""
+        if msg.text.lower().split(" ", 1)[0] == "!ticker":  # never a game command
+            if msg.mod:
+                self.set_ticker(msg.text[len("!ticker"):].strip(), msg.display)
+            return
         if self.planner is not None:  # AI mode: all chat goes to the AI
             self.planner.add(msg)
             return
@@ -103,6 +110,17 @@ class Engine:
                 self._show(f">> {winner}")
                 self._wake_presser()
 
+    def set_ticker(self, text: str, by: str = "") -> None:
+        """Change the scrolling message ("" hides it) and save it for the next start."""
+        self.ticker = " ".join(text.split())[:500]
+        log.info("Ticker %s%s", f"set by {by}: " if by else "set: ", self.ticker or "(cleared)")
+        path = Path(self.cfg.overlay.ticker_file)
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(self.ticker, encoding="utf-8")
+        except OSError as exc:
+            log.warning("Couldn't save the ticker to %s: %s", path, exc)
+
     def apply_ai(self, summary: str, presses: list[str]) -> None:
         """An AI decision replaces any presses still queued from the last one."""
         self.queue.clear()
@@ -142,6 +160,7 @@ class Engine:
             "votes": self.tally.results(), "total_votes": self.tally.total,
             "seconds_left": None if self.round_ends_at is None else max(0.0, self.round_ends_at - now),
             "summary": self.ai_summary,
+            "ticker": self.ticker,
         }
 
     # ---- async wiring ---------------------------------------------------

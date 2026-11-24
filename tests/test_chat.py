@@ -18,4 +18,12 @@ def test_stdin_chat_reads_lines_and_skips_comments(monkeypatch):
     async def collect():
         return [m async for m in StdinChat()]
 
-    assert asyncio.run(collect()) == [ChatMessage("ash", "ash", "up"), ChatMessage("you", "you", "A")]
+    assert asyncio.run(collect()) == [ChatMessage("ash", "ash", "up", mod=True), ChatMessage("you", "you", "A", mod=True)]
+
+
+def test_moderators_and_the_broadcaster_are_flagged():
+    owner = "@badges=broadcaster/1;display-name=Me :me!me@me.tmi.twitch.tv PRIVMSG #me :!ticker hi"
+    mod = "@badges=;display-name=Mod;mod=1 :mod!mod@mod.tmi.twitch.tv PRIVMSG #me :!ticker hi"
+    viewer = "@badges=;display-name=Ash;mod=0 :ash!ash@ash.tmi.twitch.tv PRIVMSG #me :!ticker hi"
+    assert parse_irc_line(owner).mod and parse_irc_line(mod).mod
+    assert not parse_irc_line(viewer).mod

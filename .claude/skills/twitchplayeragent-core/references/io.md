@@ -5,7 +5,7 @@
   login; the bot never posts). `CAP REQ :twitch.tv/tags twitch.tv/commands`, `JOIN #channel`,
   `PING` → `PONG`, `RECONNECT`/EOF → reconnect with backoff 1→60 s.
 - `parse_irc_line`: optional `@tags`, login from the prefix (lowercased, the vote identity),
-  `display-name` tag for the overlay, text after ` :`.
+  `display-name` tag for the overlay, `mod` = moderator or broadcaster, text after ` :`.
 - `StdinChat`: `user: text` lines (bare text is user `you`), skips blank and `#` lines; reads
   stdin on a daemon thread (see gotchas).
 
@@ -40,6 +40,10 @@ One OBS Browser Source, `http://localhost:<port>` at 1920×1080, 127.0.0.1 only.
   one-line votes or AI summary, and newest inputs fading at the right edge. `sidebar`: game
   1200×1080 left, 720 px panel right. Canvas `image-rendering: pixelated`, hidden (transparent)
   when no frames arrive. Chat text only via `textContent`.
+- Ticker (`state.ticker`): a 44 px strip at the very bottom, shown only with a message (body
+  class `ticker`); the game shrinks to keep 10:9 (bar: 1071×964; sidebar: 1151×1036) so nothing
+  covers it. Two copies of the text slide left by half the track width (CSS animation,
+  ~120 px/s, restarted on change), so any length loops seamlessly.
 - Sound in the page: Web Audio, a DC blocker (`y = x - x₁ + 0.995·y₁`) because PyBoy samples
   are 0..127, buffers scheduled ~0.12 s ahead with resync on under/overrun. OBS autoplays;
   normal browsers need one click.

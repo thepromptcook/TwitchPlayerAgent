@@ -90,3 +90,19 @@ def test_a_controller_game_queues_its_commands():
                        ("e", "drive"), ("f", "left"), ("g", "start")]:
         e.handle(msg(user, text), 0)
     assert drain(e) == ["goup", "enter", "drive", "left"]  # up2/start aren't anarchy commands
+
+
+def test_ticker_changes_from_chat_and_survives_a_restart(tmp_path):
+    from twitchplayeragent.chat import ChatMessage
+
+    saved = tmp_path / "ticker.txt"
+    cfg = make_cfg(overlay={"ticker": "Welcome!", "ticker_file": str(saved)})
+    e = Engine(cfg)
+    assert e.overlay_state(0)["ticker"] == "Welcome!"  # config default until changed
+    e.handle(ChatMessage("troll", "troll", "!ticker free robux"), 0)  # viewers can't
+    assert e.ticker == "Welcome!"
+    e.handle(ChatMessage("me", "Me", "!TICKER   Back in   5 minutes ", mod=True), 0)
+    assert e.ticker == "Back in 5 minutes" and drain(e) == []  # never a game command
+    assert Engine(cfg).ticker == "Back in 5 minutes"  # a restart keeps the latest
+    e.handle(ChatMessage("me", "Me", "!ticker", mod=True), 0)  # clear
+    assert Engine(cfg).ticker == ""  # stays cleared, even with a config default
