@@ -110,6 +110,9 @@ class OverlayConfig:
     enabled: bool = True
     port: int = 8080
     max_lines: int = 20
+    # Game sound plays through the Browser Source, and the game window itself is muted
+    # so OBS's Desktop Audio doesn't capture it twice. false = sound from the window.
+    audio: bool = True
 
 
 @dataclass

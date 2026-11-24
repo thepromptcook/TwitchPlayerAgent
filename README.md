@@ -120,11 +120,18 @@ meter, the democracy votes and countdown, or the AI's summary.
    you can **minimize the game window**. Window Capture isn't needed, and
    neither are its laptop black-screen fixes.
 
-Open the same address in any browser to preview it. Game sound still plays
-from the bot; capture it with **Desktop Audio** or **Application Audio Capture**
-(the `python` process). With the `keyboard` backend there's no built-in game
-image: the left side stays transparent, so put a Window Capture of your
-emulator underneath. If port 8080 is taken, set `[overlay].port`.
+**Sound comes through the same Browser Source.** Tick **Control audio via
+OBS** in its properties, and the game shows up in OBS's audio mixer like any
+other source. The game window is muted, so Desktop Audio won't capture it a
+second time. To hear the game yourself, set that source's **Audio Monitoring**
+to *Monitor and Output*. Set `[overlay].audio = false` to go back to sound from
+the game window.
+
+Open the same address in any browser to preview it (click the page once to
+start sound; browsers block autoplay, OBS doesn't). With the `keyboard` backend
+there's no built-in game image or sound: the left side stays transparent, so put
+a Window Capture of your emulator underneath. If port 8080 is taken, set
+`[overlay].port`.
 
 ## Chat connection
 Chat is read anonymously over Twitch IRC (TLS, port 6697), so no login is

@@ -56,3 +56,24 @@ def test_state_in_democracy_and_ai_modes():
 def test_busy_port_gives_a_clear_error(overlay):
     with pytest.raises(SystemExit, match=r"\[overlay\].port"):
         Overlay(port=overlay.port).start()
+
+
+def test_audio_endpoint_streams_new_samples(overlay):
+    assert get(overlay, "/audio")[2] == b""  # nothing yet
+    for i in range(10):
+        overlay.add_audio(48000, bytes([i]) * 4)
+    status, headers, body = get(overlay, "/audio")  # new listener: only the latest 3 chunks
+    assert headers["X-Seq"] == "10" and headers["X-Rate"] == "48000"
+    assert body == bytes([7]) * 4 + bytes([8]) * 4 + bytes([9]) * 4
+    overlay.add_audio(48000, b"\x0a\x0a")
+    assert get(overlay, "/audio?after=10")[2] == b"\x0a\x0a"  # just what's new
+    assert b"const AUDIO = true" in get(overlay, "/")[2]
+
+
+def test_audio_can_be_off():
+    o = Overlay(port=0, audio=False)
+    o.start()
+    try:
+        assert b"const AUDIO = false" in get(o, "/")[2]
+    finally:
+        o.stop()

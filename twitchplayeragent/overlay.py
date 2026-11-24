@@ -6,8 +6,13 @@ for a 1920x1080 canvas. The game image comes straight from the emulator's
 memory, so it keeps working when the game window is minimized or behind other
 windows. Open the same URL in a normal browser to preview it.
 
+Game sound goes through the page too (``[overlay].audio``), so the one Browser
+Source carries picture and sound.
+
 Endpoints: /  (the page)  /state  (JSON, polled 4x a second)  /frame  (raw RGBA
-pixels of the latest game frame; 204 when there's none, e.g. keyboard backend).
+pixels of the latest game frame; 204 when there's none, e.g. keyboard backend)
+/audio?after=N  (signed 8-bit stereo samples newer than chunk N, header X-Seq).
+
 Only 127.0.0.1 is served. Chat text is inserted with textContent, never as HTML.
 """
 
@@ -16,16 +21,22 @@ from __future__ import annotations
 import json
 import logging
 import threading
+from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 log = logging.getLogger(__name__)
 
 
 class Overlay:
-    def __init__(self, port: int = 8080) -> None:
+    def __init__(self, port: int = 8080, audio: bool = True) -> None:
         self.port = port
+        self.audio = audio
         self.state: dict = {}
         self.frame: tuple[int, int, bytes] | None = None  # width, height, RGBA bytes
+        self.audio_rate = 0
+        self._audio: deque[tuple[int, bytes]] = deque(maxlen=300)  # (seq, chunk), ~5 s at 60/s
+        self._audio_seq = 0
+        self._audio_lock = threading.Lock()
         self._server: ThreadingHTTPServer | None = None
 
     def update(self, state: dict) -> None:
@@ -34,6 +45,25 @@ class Overlay:
     def set_frame(self, width: int, height: int, rgba: bytes) -> None:
         self.frame = (width, height, rgba)
 
+    def add_audio(self, rate: int, samples: bytes) -> None:
+        """One emulated frame of sound: interleaved stereo, signed 8-bit."""
+        if not samples:
+            return
+        with self._audio_lock:
+            self.audio_rate = rate
+            self._audio_seq += 1
+            self._audio.append((self._audio_seq, samples))
+
+    def audio_since(self, after: int) -> tuple[int, bytes]:
+        """(latest seq, samples newer than ``after``). A new listener (after < 0)
+        or one that fell behind gets only the last few chunks, to stay near live."""
+        with self._audio_lock:
+            chunks = list(self._audio)
+            latest = self._audio_seq
+        if after < 0 or (chunks and after < chunks[0][0] - 1):
+            after = latest - 3
+        return latest, b"".join(data for seq, data in chunks if seq > after)
+
     def start(self) -> None:
         overlay = self
 
@@ -41,12 +71,19 @@ class Overlay:
             def do_GET(self) -> None:
                 path = self.path.split("?")[0]
                 if path == "/":
-                    self._send(200, "text/html; charset=utf-8", PAGE.encode())
+                    page = PAGE.replace("const $ =", f"const AUDIO = {str(overlay.audio).lower()};\nconst $ =", 1)
+                    self._send(200, "text/html; charset=utf-8", page.encode())
                 elif path == "/state":
                     self._send(200, "application/json", json.dumps(overlay.state).encode())
                 elif path == "/frame" and overlay.frame is not None:
                     w, h, data = overlay.frame
                     self._send(200, "application/octet-stream", data, {"X-Width": w, "X-Height": h})
+                elif path == "/audio":
+                    query = self.path.partition("?")[2]
+                    after = int(query.partition("after=")[2] or -1) if "after=" in query else -1
+                    seq, data = overlay.audio_since(after)
+                    self._send(200, "application/octet-stream", data,
+                               {"X-Seq": seq, "X-Rate": overlay.audio_rate})
                 elif path in ("/frame", "/favicon.ico"):
                     self._send(204, "text/plain", b"")
                 else:
@@ -172,6 +209,39 @@ async function pollFrames() {
     } catch (e) { canvas.style.display = "none"; }
   }
 }
-pollState(); pollFrames();
+// Game sound: poll new samples and schedule them back to back with a small
+// buffer. PyBoy's samples run 0..127 (never negative), so a DC blocker centres
+// the wave; otherwise playback clicks. OBS allows autoplay; in a normal browser,
+// click the page once to start sound.
+async function pollAudio() {
+  let ctx = null, seq = -1, next = 0;
+  const dc = [{x: 0, y: 0}, {x: 0, y: 0}];
+  addEventListener("click", () => ctx && ctx.resume());
+  for (;;) {
+    await new Promise(r => setTimeout(r, 40));
+    try {
+      const r = await fetch("/audio?after=" + seq, {cache: "no-store"});
+      seq = +r.headers.get("X-Seq");
+      const rate = +r.headers.get("X-Rate");
+      const raw = new Int8Array(await r.arrayBuffer());
+      if (!rate || raw.length < 2) continue;
+      if (!ctx) { ctx = new AudioContext({sampleRate: rate}); ctx.resume(); }
+      const frames = raw.length >> 1, buf = ctx.createBuffer(2, frames, rate);
+      for (let c = 0; c < 2; c++) {
+        const out = buf.getChannelData(c), f = dc[c];
+        for (let i = 0; i < frames; i++) {
+          const x = raw[2 * i + c] / 128;
+          f.y = x - f.x + 0.995 * f.y; f.x = x; out[i] = f.y;
+        }
+      }
+      const now = ctx.currentTime;
+      if (next < now + 0.02 || next > now + 0.4) next = now + 0.12;  // (re)start or catch up
+      const src = ctx.createBufferSource(); src.buffer = buf; src.connect(ctx.destination);
+      src.start(next); next += buf.duration;
+      window.audioFramesPlayed = (window.audioFramesPlayed || 0) + frames;
+    } catch (e) {}
+  }
+}
+pollState(); pollFrames(); if (AUDIO) pollAudio();
 </script></body></html>
 """

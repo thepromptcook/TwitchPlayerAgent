@@ -47,9 +47,11 @@ def main(argv: list[str] | None = None) -> None:
     backend = make_backend(cfg)
     overlay = None
     if cfg.overlay.enabled:
-        overlay = Overlay(cfg.overlay.port)
+        overlay = Overlay(cfg.overlay.port, cfg.overlay.audio)
         overlay.start()
         backend.on_frame = overlay.set_frame
+        if cfg.overlay.audio:
+            backend.on_audio = overlay.add_audio
     engine = Engine(cfg, overlay)
 
     backend.start()

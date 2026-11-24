@@ -113,9 +113,16 @@ One OBS **Browser Source** (`http://localhost:<port>`, 1920×1080) replaces wind
 text sources. `ThreadingHTTPServer` on 127.0.0.1 in a daemon thread; port in use → SystemExit naming
 `[overlay].port`; port 0 picks a free one (tests). Routes: `/` the inline `PAGE`; `/state` the
 engine's `overlay_state` (pushed by the clock every 0.25 s); `/frame` raw RGBA + `X-Width`/`X-Height`
-headers, 204 if none; `/favicon.ico` 204. The backend's `on_frame(w, h, rgba)` hook
+headers, 204 if none; `/audio?after=N` sound chunks newer than N (`X-Seq`, `X-Rate`); `/favicon.ico` 204.
+The backend's `on_frame(w, h, rgba)` hook
 (`Overlay.set_frame`) gets every 2nd PyBoy frame from `pyboy.screen.ndarray` (a live (144,160,4)
 view; `tobytes()` copies), so the game shows even when its window is minimized.
+Sound (`[overlay].audio`): `on_audio(rate, samples)` gets each frame's `pyboy.sound.raw_buffer[:raw_buffer_head]`
+(interleaved stereo int8, ~800 frames at 48 kHz); `Overlay` keeps ~5 s of chunks; a new or lagging
+listener gets the last 3. PyBoy then starts with `sound_volume=0`: volume only scales the window's
+playback, not the samples, so OBS's Desktop Audio doesn't double the sound. Samples run 0..127, so the
+page runs a DC blocker (`y = x - x₁ + 0.995·y₁`) before Web Audio, schedules buffers back to back
+~0.12 s ahead, and resyncs if it under- or over-runs. OBS autoplays; normal browsers need one click.
 Page: canvas 1200×1080 (`image-rendering: pixelated`, 10:9) left, transparent when no frames;
 panel 720 px right: mode name, red/blue meter with a marker at `threshold`, democracy countdown
 and top 5, or AI summary; input list bottom-aligned. Poll `/state` every 250 ms and `/frame` at
@@ -133,7 +140,7 @@ and top 5, or AI summary; input list bottom-aligned. Poll `/state` every 250 ms 
 | `[backend]` | type ("pyboy" / "keyboard" / "log"), hold_frames (2), release_frames (2) |
 | `[backend.pyboy]` | rom, state_file, autosave_minutes (5), window ("SDL2"), scale (4), window_keyboard (false) |
 | `[backend.keyboard]` | keys (button→key), hold_ms (50), gap_ms (50) |
-| `[overlay]` | enabled (true), port (8080), max_lines (20) |
+| `[overlay]` | enabled (true), port (8080), max_lines (20), audio (true) |
 Nested dataclasses built recursively; `validate()` checks enums and ranges. TOML syntax errors
 show the offending line with hints for unquoted text and curly quotes. Gitignore `roms/`,
 `saves/`, `*.gb`, `*.state`, `config.toml`.

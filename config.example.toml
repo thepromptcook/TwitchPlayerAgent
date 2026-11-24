@@ -74,3 +74,4 @@ right = "right"
 enabled = true
 port = 8080
 max_lines = 20
+audio = true            # game sound through the Browser Source (the game window is muted)

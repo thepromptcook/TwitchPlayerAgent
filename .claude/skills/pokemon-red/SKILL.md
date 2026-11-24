@@ -86,7 +86,8 @@ detail, keep it to things the player must know about inputs, not walkthrough con
 - One Browser Source, `http://localhost:8080`, 1920×1080: the game at 1200×1080 (10:9, crisp
   pixels) with the input list on the right like the original, plus meter, votes or AI summary.
 - The game window can be minimized; the image comes from the emulator, not the window.
-- Sound: Desktop Audio, or Application Audio Capture of the `python` process.
+- Sound comes through the same Browser Source: tick "Control audio via OBS"; use Audio
+  Monitoring "Monitor and Output" to hear it. The game window is muted to avoid double audio.
 - Laptops: a mobile RTX 4090 has 16 GB VRAM, so for Ollama use `qwen3:14b` (9.3 GB), not
   `qwen3.5:27b`. NVENC encoding uses separate hardware and barely competes with the model.
 - The bot reads chat directly, so stream delay doesn't add input lag. Viewers still see their

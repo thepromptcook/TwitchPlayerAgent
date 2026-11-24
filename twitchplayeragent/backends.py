@@ -27,6 +27,8 @@ class Backend:
     #: Set by __main__ to Overlay.set_frame(width, height, rgba) if the backend has the
     #: game's pixels (PyBoy), so the overlay can show the game without window capture.
     on_frame = None
+    #: Likewise Overlay.add_audio(rate, samples) for the game's sound (PyBoy).
+    on_audio = None
 
     def start(self) -> None:
         """Called once before any press."""
@@ -127,8 +129,11 @@ class PyBoyBackend(Backend):
 
         # no_input: PyBoy's own keyboard controls are off, so keys typed into the game
         # window (Ctrl+C, whose "c" cycles the palette) can't play; only chat does.
+        # When the overlay carries the sound, mute the window: PyBoy's volume only scales
+        # what the window plays, not the samples it hands us.
         pyboy = PyBoy(str(rom), window=self.cfg.window, scale=self.cfg.scale,
-                      no_input=not self.cfg.window_keyboard)
+                      no_input=not self.cfg.window_keyboard,
+                      sound_volume=0 if self.on_audio is not None else 100)
         pyboy.set_emulation_speed(1)  # real time
         state = Path(self.cfg.state_file)
         if state.is_file():
@@ -154,6 +159,9 @@ class PyBoyBackend(Backend):
                 if self.on_frame is not None and ticks % 2 == 0:  # 30 fps to the overlay
                     screen = pyboy.screen.ndarray  # live (144, 160, 4) RGBA view; tobytes copies
                     self.on_frame(screen.shape[1], screen.shape[0], screen.tobytes())
+                if self.on_audio is not None:  # this frame's samples, interleaved stereo int8
+                    sound = pyboy.sound
+                    self.on_audio(sound.sample_rate, bytes(sound.raw_buffer[: sound.raw_buffer_head]))
                 if job is not None:
                     frame += 1
                     if frame == self.hold:
