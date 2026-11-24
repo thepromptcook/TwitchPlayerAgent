@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import tomllib
 from dataclasses import dataclass, field, fields, is_dataclass
 from pathlib import Path
@@ -139,7 +140,37 @@ def load_config(path: str | Path | None) -> Config:
     if path is None:
         cfg = Config()
     else:
-        with open(path, "rb") as fh:
-            cfg = _build(Config, tomllib.load(fh))
-    cfg.validate()
+        text = Path(path).read_text(encoding="utf-8")
+        try:
+            data = tomllib.loads(text)
+        except tomllib.TOMLDecodeError as exc:
+            raise SystemExit(_explain_toml_error(path, text, exc)) from None
+        try:
+            cfg = _build(Config, data)
+        except (TypeError, ValueError) as exc:
+            raise SystemExit(f"Config error in {path}: {exc}") from None
+    try:
+        cfg.validate()
+    except ValueError as exc:
+        raise SystemExit(f"Config error in {path or 'defaults'}: {exc}") from None
     return cfg
+
+
+def _explain_toml_error(path: str | Path, text: str, exc: "tomllib.TOMLDecodeError") -> str:
+    lineno = getattr(exc, "lineno", None)
+    if lineno is None:  # Python < 3.14 only has it in the message text
+        m = re.search(r"line (\d+)", str(exc))
+        lineno = int(m.group(1)) if m else None
+    msg = f"Could not read {path}: {exc}"
+    if lineno:
+        lines = text.splitlines()
+        if 0 < lineno <= len(lines):
+            line = lines[lineno - 1]
+            msg += f"\n  line {lineno}:  {line.strip()}"
+            if any(q in line for q in "“”‘’"):
+                msg += "\n  Hint: that line has curly quotes. Use plain straight quotes: \"like this\""
+            elif "=" in line and not line.split("=", 1)[1].strip().startswith(('"', "'", "[", "{")):
+                value = line.split("=", 1)[1].strip()
+                if value and not value[0].isdigit() and value.split()[0] not in ("true", "false"):
+                    msg += "\n  Hint: text values need quotes, e.g.  channel = \"yourname\""
+    return msg
