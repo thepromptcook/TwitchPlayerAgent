@@ -1,0 +1,24 @@
+# Never commit game ROMs or saves
+roms/
+saves/
+*.gb
+*.gbc
+*.sav
+*.state
+*.ram
+
+# Local config may hold an OAuth token
+config.toml
+
+# Runtime output
+overlay/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+build/
+dist/

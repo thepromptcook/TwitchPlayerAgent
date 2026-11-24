@@ -1,0 +1,106 @@
+import asyncio
+
+from twitchplayeragent.backends.log_backend import LogBackend
+from twitchplayeragent.chat import ChatMessage, parse_irc_line
+from twitchplayeragent.config import Config
+from twitchplayeragent.engine import Engine
+from twitchplayeragent.modes import Mode
+from twitchplayeragent.overlay import Overlay, render_bar
+
+
+def msg(user, text):
+    return ChatMessage(user, user, text)
+
+
+def make(**meter):
+    cfg = Config()
+    cfg.meter.min_votes = 1
+    for k, v in meter.items():
+        setattr(cfg.meter, k, v)
+    return Engine(cfg)
+
+
+def drain(e):
+    out = []
+    while (b := e.next_press()) is not None:
+        out.append(b)
+    return out
+
+
+def test_anarchy_executes_everything_in_order():
+    e = make()
+    for u, t in [("a", "up"), ("b", "A"), ("c", "hello"), ("d", "up2"), ("e", "start")]:
+        e.handle(msg(u, t), 0)
+    assert drain(e) == ["up", "a", "start"]
+
+
+def test_anarchy_queue_is_bounded():
+    e = make()
+    e.cfg.anarchy.max_queue = 3
+    e = Engine(e.cfg)
+    for i, b in enumerate(["up", "down", "left", "right"]):
+        e.handle(msg(str(i), b), 0)
+    assert drain(e) == ["down", "left", "right"]
+
+
+def test_democracy_round():
+    e = make(start_mode="democracy")
+    e.cfg.democracy.window_seconds = 20
+    e.handle(msg("a", "up2"), 0)
+    e.handle(msg("b", "upup"), 1)
+    e.handle(msg("c", "start9"), 2)
+    e.tick(10)
+    assert drain(e) == []  # round still open
+    e.tick(20)
+    assert drain(e) == ["up", "up"]
+    assert e.round_ends_at is None
+
+
+def test_democracy_wait_wins_presses_nothing():
+    e = make(start_mode="democracy")
+    e.handle(msg("a", "wait"), 0)
+    e.handle(msg("b", "wait"), 0)
+    e.handle(msg("c", "a"), 0)
+    e.tick(100)
+    assert drain(e) == []
+
+
+def test_switching_modes_clears_pending_inputs():
+    e = make()
+    e.handle(msg("a", "up"), 0)
+    e.handle(msg("v", "democracy"), 0)
+    assert e.mode is Mode.DEMOCRACY
+    assert drain(e) == []
+    e.handle(msg("x", "left"), 1)
+    e.handle(msg("v", "anarchy"), 2)
+    assert e.mode is Mode.ANARCHY
+    e.tick(100)
+    assert drain(e) == []
+
+
+def test_parse_irc_privmsg():
+    line = ("@badge-info=;color=#FF0000;display-name=AshKetchum;mod=0 "
+            ":ashketchum!ashketchum@ashketchum.tmi.twitch.tv PRIVMSG #tpp :up2left")
+    m = parse_irc_line(line)
+    assert m == ChatMessage("ashketchum", "AshKetchum", "up2left")
+    assert parse_irc_line(":tmi.twitch.tv 001 justinfan1 :Welcome") is None
+
+
+def test_overlay_files(tmp_path):
+    e = Engine(Config(), Overlay(tmp_path))
+    e.handle(msg("red", "up"), 0)
+    e.render_overlay(0)
+    assert (tmp_path / "inputs.txt").read_text() == "red  up\n"
+    assert (tmp_path / "mode.txt").read_text().startswith("ANARCHY\n")
+    assert render_bar(0.5, 0.8, width=10) == "ANARCHY [#####---|-] DEMOCRACY"
+
+
+def test_run_end_to_end_with_log_backend():
+    async def chat():
+        for t in ["up", "a", "nope", "b"]:
+            yield msg("u", t)
+
+    e = make()
+    backend = LogBackend(delay=0)
+    asyncio.run(asyncio.wait_for(e.run(chat(), backend), timeout=5))
+    assert backend.pressed == ["up", "a", "b"]
