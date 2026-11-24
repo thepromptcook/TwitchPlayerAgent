@@ -1,18 +1,6 @@
-"""AI mode: an AI reads chat and picks the button presses.
-
-Every ``[ai].window_seconds``, all chat from that window (plain commands and
-natural language like "go heal at the pokemon center") goes to the AI in one
-call. The answer is held to a schema that only allows the game's button
-names, so whatever chat says, it can only press real buttons. Each answer
-replaces any presses still queued from the previous one.
-
-Providers ([ai].provider):
-* "claude": Anthropic's API. Needs ``pip install -e ".[claude]"`` and the
-  ANTHROPIC_API_KEY environment variable (billed separately from claude.ai).
-* "ollama": a local model served by Ollama (https://ollama.com). Free, no
-  extra Python packages; Ollama's structured outputs constrain the answer
-  to the schema while it's generated.
-"""
+"""AI mode: once per [ai].window_seconds, one call turns that window's chat into presses, held to
+a schema that only allows the game's commands. Providers: "claude" (Anthropic API, needs
+pip install -e ".[claude]" and ANTHROPIC_API_KEY) or "ollama" (a local model, plain HTTP)."""
 
 from __future__ import annotations
 
@@ -20,7 +8,6 @@ import asyncio
 import json
 import logging
 import os
-import urllib.error
 import urllib.request
 
 from .chat import ChatMessage
@@ -37,31 +24,17 @@ def model_name(cfg: Config) -> str:
     return cfg.ai.model or DEFAULT_MODELS[cfg.ai.provider]
 
 
-def answer_schema(buttons: frozenset[str]) -> dict:
+def answer_schema(commands: frozenset[str]) -> dict:
     return {
         "type": "object",
         "properties": {
-            "summary": {
-                "type": "string",
-                "description": "One short sentence: what chat wants and what these presses do.",
-            },
-            "presses": {
-                "type": "array",
-                "items": {"type": "string", "enum": sorted(buttons)},
-                "description": "Buttons to press, in order. Empty to wait.",
-            },
+            "summary": {"type": "string",
+                        "description": "One short sentence: what chat wants and what these presses do."},
+            "presses": {"type": "array", "items": {"type": "string", "enum": sorted(commands)},
+                        "description": "Buttons to press, in order. Empty to wait."},
         },
         "required": ["summary", "presses"],
         "additionalProperties": False,
-    }
-
-
-def build_tool(buttons: frozenset[str]) -> dict:
-    return {
-        "name": TOOL_NAME,
-        "description": "Press these Game Boy buttons in order, starting now.",
-        "strict": True,
-        "input_schema": answer_schema(buttons),
     }
 
 
@@ -105,11 +78,9 @@ def format_chat(messages: list[ChatMessage]) -> str:
     groups: dict[str, list] = {}  # normalized text -> [first message, count]
     for m in messages:
         key = " ".join(m.text.lower().split())
-        if not key:
-            continue
         if key in groups:
             groups[key][1] += 1
-        else:
+        elif key:
             groups[key] = [m, 1]
     lines = [f"{n}x {m.text}" if n > 1 else f"{m.display}: {m.text}" for m, n in groups.values()]
     note = ""
@@ -119,8 +90,6 @@ def format_chat(messages: list[ChatMessage]) -> str:
     return "<chat>\n" + note + "\n".join(lines) + "\n</chat>"
 
 
-# ---- Ollama (local) -------------------------------------------------------------
-
 def _http_json(url: str, payload: dict | None = None, timeout: float = 60) -> dict:
     data = None if payload is None else json.dumps(payload).encode()
     req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
@@ -128,51 +97,44 @@ def _http_json(url: str, payload: dict | None = None, timeout: float = 60) -> di
         return json.loads(resp.read().decode())
 
 
-def _ollama_problem(cfg: Config) -> str:
-    url, model = cfg.ai.ollama_url.rstrip("/"), model_name(cfg)
-    try:
-        tags = _http_json(f"{url}/api/tags", timeout=5)
-    except (urllib.error.URLError, OSError, ValueError):
-        return f"Ollama isn't reachable at {url}. Install it from ollama.com and make sure it's running."
-    names = {m.get("name", "") for m in tags.get("models", [])}
-    if model not in names and f"{model}:latest" not in names:
-        return f"the model {model} isn't downloaded. Run: ollama pull {model}"
-    return ""
-
-
 def unavailable(cfg: Config, check_server: bool = True) -> str:
-    """Why AI mode can't run, or "" if it can. check_server=False skips the (up to 5 s)
-    Ollama check, for switching mid-stream without stalling chat."""
+    """Why AI mode can't run, as a one-line fix, or "". check_server=False skips the Ollama
+    request (up to 5 s), so a mid-stream !mode ai never stalls chat."""
     if cfg.ai.provider == "ollama":
-        return _ollama_problem(cfg) if check_server else ""
+        if not check_server:
+            return ""
+        url, model = cfg.ai.ollama_url.rstrip("/"), model_name(cfg)
+        try:
+            names = {m.get("name", "") for m in _http_json(f"{url}/api/tags", timeout=5).get("models", [])}
+        except (OSError, ValueError):  # URLError is an OSError, bad JSON a ValueError
+            return f"Ollama isn't reachable at {url}. Install it from ollama.com and make sure it's running."
+        return "" if {model, f"{model}:latest"} & names else f"the model {model} isn't downloaded. Run: ollama pull {model}"
     try:
         import anthropic  # noqa: F401  (optional dependency)
     except ImportError:
         return 'the anthropic package isn\'t installed. Run: pip install -e ".[claude]"'
-    if not os.environ.get("ANTHROPIC_API_KEY"):
-        return "the ANTHROPIC_API_KEY environment variable isn't set."
-    return ""
+    return "" if os.environ.get("ANTHROPIC_API_KEY") else "the ANTHROPIC_API_KEY environment variable isn't set."
 
 
 class Planner:
-    """Collects chat and, once per window, asks the AI which buttons to press."""
+    """Collects chat and, once per window, asks the AI what to press."""
 
     def __init__(self, cfg: Config, client=None) -> None:
-        self.cfg = cfg
-        self.client = client  # Claude client (created on first use); tests pass a fake
+        self.cfg, self.client = cfg, client  # the Claude client, made on first use; tests pass a fake
         self.schema = answer_schema(cfg.allowed_commands)
-        self.tool = build_tool(cfg.allowed_commands)
+        self.tool = {"name": TOOL_NAME, "description": "Press these in order, starting now.",
+                     "strict": True, "input_schema": self.schema}
         self.system = build_system(cfg)
         self.previous = ""
         self.buffer: list[ChatMessage] = []
 
     def add(self, msg: ChatMessage) -> None:
         self.buffer.append(msg)
-        del self.buffer[:-20000]  # guard against a stalled loop
+        del self.buffer[:-20000]  # bounded if the loop stalls
 
     async def decide(self) -> tuple[str, list[str]] | None:
-        """One window: (summary, presses) for the chat that arrived, or None if there
-        was no chat or the call failed (the game is then left alone)."""
+        """(summary, presses) for the chat since the last call, or None when there was none or
+        the call failed (the game is then left alone)."""
         if not self.buffer:
             return None
         batch, self.buffer = self.buffer, []
@@ -183,7 +145,7 @@ class Planner:
                 answer = await asyncio.to_thread(self._call_ollama, content)
             else:
                 answer = await self._call_claude(content)
-        except Exception as exc:  # API/network errors: log and keep the stream running
+        except Exception as exc:  # API or network trouble: log it and keep the stream going
             status = getattr(exc, "status_code", None)
             log.error("AI call failed: %s%s", f"{status} " if status else "", getattr(exc, "message", exc))
             return None
@@ -197,22 +159,14 @@ class Planner:
         return summary, presses
 
     def _call_ollama(self, content: str) -> dict | None:
-        reply = _http_json(
-            f"{self.cfg.ai.ollama_url.rstrip('/')}/api/chat",
-            {
-                "model": model_name(self.cfg),
-                "messages": [
-                    {"role": "system", "content": self.system},
-                    {"role": "user", "content": content},
-                ],
-                "format": self.schema,  # constrained decoding: only schema-valid JSON
-                "think": False,  # answer fast; a quick decision beats a long ramble here
-                "stream": False,
-                "keep_alive": "30m",  # stay loaded in VRAM between windows
-                "options": {"temperature": 0.3},
-            },
-            timeout=max(60, self.cfg.ai.window_seconds * 3),
-        )
+        reply = _http_json(f"{self.cfg.ai.ollama_url.rstrip('/')}/api/chat", {
+            "model": model_name(self.cfg),
+            "messages": [{"role": "system", "content": self.system}, {"role": "user", "content": content}],
+            "format": self.schema,  # constrained decoding: only schema-valid JSON comes out
+            "think": False, "stream": False,  # a quick decision beats a long ramble here
+            "keep_alive": "30m",  # stay loaded in VRAM between windows
+            "options": {"temperature": 0.3},
+        }, timeout=max(60, self.cfg.ai.window_seconds * 3))
         text = reply.get("message", {}).get("content", "")
         try:
             return json.loads(text)
@@ -225,8 +179,8 @@ class Planner:
             import anthropic  # optional dependency
 
             self.client = anthropic.AsyncAnthropic()
-        # Forced tool_choice is rejected by current models, so the prompt asks for the
-        # tool and `strict` keeps its arguments to the schema.
+        # Current models reject a forced tool_choice, so the prompt asks for the tool and
+        # `strict` holds its arguments to the schema.
         response = await self.client.beta.messages.create(
             model=model_name(self.cfg),
             max_tokens=4000,

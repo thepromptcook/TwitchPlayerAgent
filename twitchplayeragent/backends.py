@@ -1,14 +1,6 @@
-"""Input backends: where button presses end up.
-
-* PyBoyBackend: runs the ROM inside PyBoy and presses buttons on exact frames.
-* KeyboardBackend: sends keypresses to an external emulator window.
-* GamepadBackend: a virtual Xbox controller for [game.commands] games; Windows,
-  games and Xbox Remote Play see it as a real one, so it also reaches a console.
-* LogBackend: dry run, only records/logs presses.
-
-``press(button)`` blocks until the button is pressed *and released*; the engine
-calls it from a worker thread, one press at a time.
-"""
+"""Where presses end up. press(command) blocks until it's pressed and released; the engine calls
+it from a worker thread, one press at a time. Design notes and past bugs: the core skill's
+references/io.md."""
 
 from __future__ import annotations
 
@@ -19,98 +11,74 @@ import threading
 import time
 from pathlib import Path
 
-from .config import Config, KeyboardConfig, PyBoyConfig
+from .config import PAD_BUTTONS, Config, KeyboardConfig, PyBoyConfig
 
 log = logging.getLogger(__name__)
 
 
 class Backend:
-    #: True if the backend must own the main thread (an SDL window, required on macOS).
-    needs_main_thread = False
-    #: Set by __main__ to Overlay.set_frame(width, height, rgba) if the backend has the
-    #: game's pixels (PyBoy), so the overlay can show the game without window capture.
-    on_frame = None
-    #: Likewise Overlay.add_audio(rate, samples) for the game's sound (PyBoy).
-    on_audio = None
+    needs_main_thread = False  # True: run_main_loop(stop) owns the main thread (SDL needs it)
+    on_frame = None  # set by __main__ to Overlay.set_frame / Overlay.add_audio when the
+    on_audio = None  # backend has the game's picture and sound (PyBoy)
 
-    def start(self) -> None:
-        """Called once before any press."""
+    def start(self) -> None: ...
 
-    def stop(self) -> None:
-        """Called once on shutdown."""
+    def stop(self) -> None: ...
 
-    def press(self, button: str) -> None:
+    def press(self, command: str) -> None:
         raise NotImplementedError
-
-    def run_main_loop(self, stop: threading.Event) -> None:
-        """For needs_main_thread backends: run until ``stop`` is set."""
-        stop.wait()
 
 
 class LogBackend(Backend):
-    def __init__(self, delay: float = 0.05) -> None:
-        self.delay = delay
-        self.pressed: list[str] = []
+    """--dry-run: only records presses."""
 
-    def press(self, button: str) -> None:
-        self.pressed.append(button)
+    def __init__(self, delay: float = 0.05) -> None:
+        self.delay, self.pressed = delay, []
+
+    def press(self, command: str) -> None:
+        self.pressed.append(command)
         time.sleep(self.delay)
 
 
 class KeyboardBackend(Backend):
-    """Keys into a focused emulator window (how the 2014 stream worked). On Windows,
-    pydirectinput is preferred because many emulators ignore virtual-key events."""
+    """Keys into a focused external emulator (mGBA), like the 2014 stream."""
 
     def __init__(self, cfg: KeyboardConfig) -> None:
         self.cfg = cfg
 
     def start(self) -> None:
-        try:
+        try:  # Windows: many emulators ignore virtual-key events, so DirectInput scan codes
             import pydirectinput  # type: ignore
 
             pydirectinput.PAUSE = 0
             self._down, self._up = pydirectinput.keyDown, pydirectinput.keyUp
-            return
         except ImportError:
-            pass
-        try:
-            from pynput.keyboard import Controller, Key  # type: ignore
-        except ImportError as exc:
-            raise SystemExit('Keyboard backend needs pydirectinput or pynput: pip install -e ".[keyboard]"') from exc
-        kb = Controller()
-        resolve = lambda k: getattr(Key, k) if len(k) > 1 and hasattr(Key, k) else k  # noqa: E731
-        self._down = lambda k: kb.press(resolve(k))
-        self._up = lambda k: kb.release(resolve(k))
+            try:
+                from pynput.keyboard import Controller, Key  # type: ignore
+            except ImportError as exc:
+                raise SystemExit('Keyboard backend needs pydirectinput or pynput: pip install -e ".[keyboard]"') from exc
+            kb = Controller()
+            key = lambda k: getattr(Key, k) if len(k) > 1 and hasattr(Key, k) else k  # noqa: E731
+            self._down, self._up = (lambda k: kb.press(key(k))), (lambda k: kb.release(key(k)))
 
-    def press(self, button: str) -> None:
-        key = self.cfg.keys.get(button)
-        if key is None:
-            return
-        self._down(key)
-        time.sleep(self.cfg.hold_ms / 1000)
-        self._up(key)
-        time.sleep(self.cfg.gap_ms / 1000)
+    def press(self, command: str) -> None:
+        key = self.cfg.keys.get(command)
+        if key is not None:
+            self._down(key)
+            time.sleep(self.cfg.hold_ms / 1000)
+            self._up(key)
+            time.sleep(self.cfg.gap_ms / 1000)
 
 
 class GamepadBackend(Backend):
-    """A virtual Xbox 360 controller (vgamepad + the ViGEmBus driver). Each chat command is
-    a [game.commands] entry: a press or stick push for ``seconds``; a ``toggle`` that stays
-    held (sticks and buttons) until repeated or ``release``; momentary presses happen on top
-    of whatever is toggled, so ``left`` steers while ``drive`` keeps the accelerator down."""
+    """A virtual Xbox 360 controller (vgamepad + ViGEmBus) for [game.commands] games. Toggled
+    buttons and stick positions stay held; a momentary command acts on top for `seconds`, so
+    `left` steers while `drive` keeps the accelerator down."""
 
     GAP = 0.05  # seconds between commands
-    XUSB = {  # our button name -> vgamepad XUSB_BUTTON member (LT/RT are triggers)
-        "A": "XUSB_GAMEPAD_A", "B": "XUSB_GAMEPAD_B", "X": "XUSB_GAMEPAD_X", "Y": "XUSB_GAMEPAD_Y",
-        "LB": "XUSB_GAMEPAD_LEFT_SHOULDER", "RB": "XUSB_GAMEPAD_RIGHT_SHOULDER",
-        "LS": "XUSB_GAMEPAD_LEFT_THUMB", "RS": "XUSB_GAMEPAD_RIGHT_THUMB",
-        "START": "XUSB_GAMEPAD_START", "BACK": "XUSB_GAMEPAD_BACK",
-        "UP": "XUSB_GAMEPAD_DPAD_UP", "DOWN": "XUSB_GAMEPAD_DPAD_DOWN",
-        "LEFT": "XUSB_GAMEPAD_DPAD_LEFT", "RIGHT": "XUSB_GAMEPAD_DPAD_RIGHT",
-    }
 
     def __init__(self, commands: dict[str, dict]) -> None:
-        self.commands = commands
-        self.pad = None
+        self.commands, self.pad = commands, None
         self.held: set[str] = set()  # toggled buttons
         self.sticks: dict[str, tuple[float, float]] = {}  # toggled stick positions
 
@@ -120,11 +88,9 @@ class GamepadBackend(Backend):
         except ImportError as exc:
             raise SystemExit('Controller games need vgamepad: pip install -e ".[gamepad]" '
                              "(Windows; it also installs the ViGEmBus driver)") from exc
-        self.vg = vgamepad
+        self.buttons = {b: getattr(vgamepad.XUSB_BUTTON, "XUSB_GAMEPAD_" + x) for b, x in PAD_BUTTONS.items() if x}
         self.pad = vgamepad.VX360Gamepad()
         self._apply(set(), {})
-        # The Xbox app only looks for controllers when it starts: closing Remote Play isn't
-        # enough, the whole app has to be quit and reopened after the bot is running.
         log.info("Virtual Xbox controller connected. If the Xbox app was already open, quit it "
                  "completely (tray icon or Task Manager) and reopen it so Remote Play sees it.")
 
@@ -133,8 +99,8 @@ class GamepadBackend(Backend):
             self.pad.reset()
             self.pad.update()
 
-    def press(self, name: str) -> None:
-        spec = self.commands.get(name)
+    def press(self, command: str) -> None:
+        spec = self.commands.get(command)
         if spec is None:
             return
         buttons = {spec["button"]} if "button" in spec else set()
@@ -143,12 +109,11 @@ class GamepadBackend(Backend):
             self.held.clear()
             self.sticks.clear()
         elif spec.get("toggle"):
-            already_on = buttons <= self.held and all(self.sticks.get(k) == v for k, v in sticks.items())
-            if already_on:  # same command again: off
+            if buttons <= self.held and sticks.items() <= self.sticks.items():  # repeated: off
                 self.held -= buttons
                 for stick in sticks:
-                    self.sticks.pop(stick, None)
-            else:  # on (a new direction on the same stick replaces the old one)
+                    del self.sticks[stick]
+            else:  # on; a new direction on the same stick replaces the old one
                 self.held |= buttons
                 self.sticks.update(sticks)
         else:  # momentary, on top of what's toggled
@@ -158,20 +123,19 @@ class GamepadBackend(Backend):
         time.sleep(self.GAP)
 
     def _apply(self, buttons: set[str], sticks: dict[str, tuple[float, float]]) -> None:
-        pad, xusb = self.pad, self.vg.XUSB_BUTTON
-        for name, member in self.XUSB.items():
-            (pad.press_button if name in buttons else pad.release_button)(button=getattr(xusb, member))
-        pad.left_trigger_float(value_float=1.0 if "LT" in buttons else 0.0)
-        pad.right_trigger_float(value_float=1.0 if "RT" in buttons else 0.0)
-        x, y = sticks.get("left", (0.0, 0.0))
-        pad.left_joystick_float(x_value_float=x, y_value_float=y)
-        x, y = sticks.get("right", (0.0, 0.0))
-        pad.right_joystick_float(x_value_float=x, y_value_float=y)
+        pad = self.pad
+        for name, button in self.buttons.items():
+            (pad.press_button if name in buttons else pad.release_button)(button=button)
+        pad.left_trigger_float(value_float=float("LT" in buttons))
+        pad.right_trigger_float(value_float=float("RT" in buttons))
+        pad.left_joystick_float(*sticks.get("left", (0.0, 0.0)))
+        pad.right_joystick_float(*sticks.get("right", (0.0, 0.0)))
         pad.update()
 
 
 class PyBoyBackend(Backend):
-    """The emulator runs on the main thread; press() hands jobs to it through a queue."""
+    """Runs the ROM in PyBoy on the main thread. press() queues a (command, done) job, and the
+    loop holds the button for exact frames."""
 
     needs_main_thread = True
 
@@ -179,15 +143,15 @@ class PyBoyBackend(Backend):
         self.cfg = cfg
         self.hold = max(1, hold_frames)
         self.total = self.hold + max(0, release_frames)
-        self._jobs: "queue.Queue[tuple[str, threading.Event]]" = queue.Queue()
+        self._jobs: queue.Queue[tuple[str, threading.Event]] = queue.Queue()
         self._running = threading.Event()
 
-    def press(self, button: str) -> None:
+    def press(self, command: str) -> None:
         if not self._running.wait(timeout=30):
-            log.warning("Emulator not running; dropped %s", button)
+            log.warning("Emulator not running; dropped %s", command)
             return
         done = threading.Event()
-        self._jobs.put((button, done))
+        self._jobs.put((command, done))
         done.wait(timeout=10)
 
     def _save(self, pyboy) -> None:
@@ -196,7 +160,7 @@ class PyBoyBackend(Backend):
         tmp = path.with_suffix(path.suffix + ".tmp")
         with open(tmp, "wb") as fh:
             pyboy.save_state(fh)
-        tmp.replace(path)  # atomic: a crash mid-save never corrupts the last good state
+        tmp.replace(path)  # atomic: a crash mid-save keeps the last good state
         log.info("Saved emulator state to %s", path)
 
     def _open(self):
@@ -207,13 +171,10 @@ class PyBoyBackend(Backend):
         rom = Path(self.cfg.rom)
         if not rom.is_file():
             raise SystemExit(f"ROM not found at {rom}. Put your own ROM there or set [backend.pyboy].rom.")
-        # no_input: keys typed into the game window can't play (only chat does). It also
-        # stops PyBoy reading window events, so _window_pump() reads them instead.
-        # sound_volume only scales the window's own playback, not the samples the overlay
-        # gets, so mute the window when the overlay carries the sound.
+        # no_input: only chat plays. sound_volume only scales the window's own playback, so
+        # muting it keeps the overlay's sound and stops Desktop Audio doubling it.
         pyboy = PyBoy(str(rom), window=self.cfg.window, scale=self.cfg.scale,
-                      no_input=not self.cfg.window_keyboard,
-                      sound_volume=0 if self.on_audio is not None else 100)
+                      no_input=not self.cfg.window_keyboard, sound_volume=0 if self.on_audio else 100)
         pyboy.set_emulation_speed(1)  # real time
         state = Path(self.cfg.state_file)
         if state.is_file():
@@ -223,26 +184,23 @@ class PyBoyBackend(Backend):
         return pyboy
 
     def _publish(self, pyboy) -> None:
-        """This frame's picture and sound to the overlay (60 fps)."""
+        """This frame's picture and sound to the overlay."""
         if self.on_frame is not None:
-            screen = pyboy.screen.ndarray  # live (144, 160, 4) RGBA view; tobytes copies
+            screen = pyboy.screen.ndarray  # a live (144, 160, 4) RGBA view: tobytes() copies it
             self.on_frame(screen.shape[1], screen.shape[0], screen.tobytes())
         if self.on_audio is not None:
-            sound = pyboy.sound  # samples since the last tick, interleaved stereo int8
+            sound = pyboy.sound  # this frame's samples, interleaved stereo int8
             self.on_audio(sound.sample_rate, bytes(sound.raw_buffer[: sound.raw_buffer_head]))
 
     def run_main_loop(self, stop: threading.Event) -> None:
         pyboy = self._open()
-        pump_window = _window_pump() if not self.cfg.window_keyboard and self.cfg.window == "SDL2" else None
-        # Freeze report: if the loop stops for 10 s, every thread's stack goes to
-        # hang-report.txt beside the save, showing where it got stuck (empty = no freeze).
+        pump = _window_pump() if self.cfg.window == "SDL2" and not self.cfg.window_keyboard else None
         saves = Path(self.cfg.state_file).parent
         saves.mkdir(parents=True, exist_ok=True)
-        hang_report = open(saves / "hang-report.txt", "w")
+        hang_report = open(saves / "hang-report.txt", "w")  # every thread's stack after a 10 s stall
         autosave = self.cfg.autosave_minutes * 60
         next_save = time.monotonic() + autosave
-        job: tuple[str, threading.Event] | None = None
-        frame = ticks = 0  # frame: frames since the current job's button went down
+        job, frame, ticks = None, 0, 0  # frame: frames since the job's button went down
         self._running.set()
         log.info("Game is running. Close the game window or press Ctrl+C to save and quit.")
         try:
@@ -250,7 +208,7 @@ class PyBoyBackend(Backend):
                 if job is None and not self._jobs.empty():
                     job, frame = self._jobs.get_nowait(), 0
                     pyboy.button_press(job[0])
-                if not pyboy.tick() or (pump_window is not None and pump_window()):
+                if not pyboy.tick() or (pump and pump()):
                     break  # window closed, or Ctrl+C
                 ticks += 1
                 self._publish(pyboy)
@@ -280,18 +238,13 @@ class PyBoyBackend(Backend):
 
 
 def _window_pump():
-    """A function that reads the SDL window's pending events, drops them, and returns
-    True on a quit event (close button or Ctrl+C). None if SDL isn't importable."""
+    """Reads and drops the SDL window's events, True on quit (close button, Ctrl+C): no_input
+    stops PyBoy reading them, and an unread window goes "Not Responding"."""
     try:
-        import sdl2  # PySDL2, installed with PyBoy
-        import sdl2.ext
+        import sdl2.ext  # PySDL2, installed with PyBoy
     except ImportError:
         return None
-
-    def pump() -> bool:
-        return any(e.type == sdl2.SDL_QUIT for e in sdl2.ext.get_events())
-
-    return pump
+    return lambda: any(e.type == sdl2.SDL_QUIT for e in sdl2.ext.get_events())
 
 
 def make_backend(cfg: Config) -> Backend:
@@ -300,6 +253,4 @@ def make_backend(cfg: Config) -> Backend:
         return PyBoyBackend(b.pyboy, b.hold_frames, b.release_frames)
     if b.type == "keyboard":
         return KeyboardBackend(b.keyboard)
-    if b.type == "gamepad":
-        return GamepadBackend(cfg.game.commands)
-    return LogBackend()
+    return GamepadBackend(cfg.game.commands) if b.type == "gamepad" else LogBackend()

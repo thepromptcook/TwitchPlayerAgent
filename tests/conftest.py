@@ -1,15 +1,15 @@
-"""Shared test helpers. Import them with `from conftest import make_cfg, msg, drain`."""
+"""Shared test helpers: `from conftest import drain, gta_cfg, make_cfg, msg`."""
 
 from twitchplayeragent.chat import ChatMessage
-from twitchplayeragent.config import Config
+from twitchplayeragent.config import Config, load_config
 
 
-def msg(user: str, text: str) -> ChatMessage:
-    return ChatMessage(user, user, text)
+def msg(user: str, text: str, mod: bool = False) -> ChatMessage:
+    return ChatMessage(user, user, text, mod)
 
 
 def make_cfg(**sections) -> Config:
-    """Config with overrides per section, e.g. make_cfg(meter={"min_votes": 1})."""
+    """Defaults with overrides per section, e.g. make_cfg(meter={"min_votes": 1})."""
     cfg = Config()
     for section, values in sections.items():
         for key, value in values.items():
@@ -18,9 +18,10 @@ def make_cfg(**sections) -> Config:
     return cfg
 
 
+def gta_cfg() -> Config:
+    return load_config(["config.example.toml", "games/gta6.toml"])
+
+
 def drain(engine) -> list[str]:
     """Every press the engine has queued, in order."""
-    out = []
-    while (b := engine.next_press()) is not None:
-        out.append(b)
-    return out
+    return list(iter(engine.next_press, None))

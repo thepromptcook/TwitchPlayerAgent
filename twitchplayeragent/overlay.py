@@ -1,17 +1,8 @@
-"""Stream overlay: one local web page for a single OBS Browser Source.
+"""Stream overlay: a local web page (overlay.html) for one OBS Browser Source, 127.0.0.1 only.
 
-http://localhost:<[overlay].port>/ (default 8080) shows the game plus mode, meter,
-votes or AI summary, and recent inputs on a 1920x1080 canvas: a thin bar under the
-game by default, or the original stream's sidebar with /?layout=sidebar. Picture
-and sound come straight from the emulator, so the game window can be minimized.
-The page itself is overlay.html (edit it there; tests syntax-check its script).
-
-Routes (127.0.0.1 only):
-  /              the page
-  /state         JSON from Engine.overlay_state, polled 4x a second
-  /frames        one long response pushing every frame as it's drawn:
-                 <HH width,height header + width*height RGBA bytes
-  /audio?after=N signed 8-bit stereo samples newer than chunk N (X-Seq, X-Rate headers)
+/        the page            /state  Engine.overlay_state as JSON, polled 4x a second
+/frames  one long response pushing every frame as it's drawn: <HH width,height + RGBA bytes
+/audio?after=N  signed 8-bit stereo samples newer than chunk N (X-Seq, X-Rate headers)
 """
 
 from __future__ import annotations
@@ -45,8 +36,6 @@ class Overlay:
         self._audio_lock = threading.Lock()
         self._server: _Server | None = None
 
-    # ---- fed by the engine and the backend --------------------------------
-
     def update(self, state: dict) -> None:
         self.state = state  # replaced whole, so readers never see a half update
 
@@ -64,8 +53,6 @@ class Overlay:
                 self._audio_seq += 1
                 self._audio.append((self._audio_seq, samples))
 
-    # ---- read by the HTTP handler ------------------------------------------
-
     def next_frame(self, after: int, timeout: float = 1.0) -> tuple[int, tuple[int, int, bytes] | None]:
         """Wait for a frame newer than ``after``: (seq, frame), or (after, None) on timeout."""
         with self._frame_ready:
@@ -82,8 +69,6 @@ class Overlay:
             after = latest - 3
         return latest, b"".join(data for seq, data in chunks if seq > after)
 
-    # ---- server ----------------------------------------------------------------
-
     def start(self) -> None:
         try:
             self._server = _Server(("127.0.0.1", self.port), _Handler)
@@ -94,19 +79,20 @@ class Overlay:
             ) from None
         self._server.overlay = self
         self.port = self._server.server_address[1]  # the real port when 0 was asked for
-        threading.Thread(target=self._server.serve_forever, name="overlay", daemon=True).start()
+        threading.Thread(target=self._server.serve_forever, kwargs={"poll_interval": 0.05},
+                         name="overlay", daemon=True).start()  # 0.05: stop() returns quickly
         log.info("Overlay at http://localhost:%d  (OBS: Browser Source, 1920x1080)", self.port)
 
     def stop(self) -> None:
-        if self._server is not None:
-            self._server.shutdown()
-            self._server = None
+        server, self._server = self._server, None  # None also ends the /frames streams
+        if server is not None:
+            server.shutdown()
+            server.server_close()
 
 
 class _Server(ThreadingHTTPServer):
-    # Python's HTTP server sets SO_REUSEADDR. On Mac/Linux that only skips the TIME_WAIT
-    # wait after a restart; on Windows it lets a second program bind a port that's in
-    # use instead of failing, so two bots could silently share 8080. Off on Windows.
+    # SO_REUSEADDR skips TIME_WAIT on Mac/Linux, but on Windows it lets a second program bind a
+    # busy port silently (two bots sharing 8080), so it's off there.
     allow_reuse_address = sys.platform != "win32"
     daemon_threads = True
     overlay: Overlay
@@ -134,8 +120,8 @@ class _Handler(BaseHTTPRequestHandler):
             self._send(404, "text/plain", b"not found")
 
     def _stream_frames(self, overlay: Overlay) -> None:
-        # One long HTTP/1.0 response (it ends when the connection closes), so each frame
-        # arrives the moment it's drawn. Polling one request per frame managed ~30 fps.
+        # One long HTTP/1.0 response, so each frame arrives the moment it's drawn (polling one
+        # request per frame managed ~30 fps).
         self.send_response(200)
         self.send_header("Content-Type", "application/octet-stream")
         self.send_header("Cache-Control", "no-store")

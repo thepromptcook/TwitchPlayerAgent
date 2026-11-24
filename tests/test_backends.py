@@ -1,4 +1,4 @@
-"""PyBoyBackend's main loop, driven by a fake `pyboy` module (no ROM or emulator needed)."""
+"""Backends driven by fake `pyboy`, `sdl2` and `vgamepad` modules: no ROM, emulator or Windows."""
 
 import sys
 import threading
@@ -7,8 +7,9 @@ import types
 
 import pytest
 
-from twitchplayeragent.backends import PyBoyBackend
-from twitchplayeragent.config import PyBoyConfig, load_config
+from conftest import gta_cfg
+from twitchplayeragent.backends import GamepadBackend, PyBoyBackend
+from twitchplayeragent.config import PAD_BUTTONS, PyBoyConfig
 
 
 class FakeScreen:
@@ -40,14 +41,18 @@ class FakePyBoy:
         return not done and self.frame < 5000  # then the "window closes"
 
 
-def test_pyboy_loop_presses_frames_and_saves(tmp_path, monkeypatch):
-    rom = tmp_path / "red.gb"
-    rom.write_bytes(b"rom")
-    instances = []
+def fake_pyboy(monkeypatch, tmp_path, cls=FakePyBoy):
+    """Installs a fake pyboy module; returns the list of emulators it creates."""
+    (tmp_path / "red.gb").write_bytes(b"rom")
+    made = []
     monkeypatch.setitem(sys.modules, "pyboy", types.SimpleNamespace(
-        PyBoy=lambda *a, **k: instances.append(FakePyBoy(*a, **k)) or instances[-1]))
+        PyBoy=lambda *a, **k: made.append(cls(*a, **k)) or made[-1]))
+    return made
 
-    cfg = PyBoyConfig(rom=str(rom), state_file=str(tmp_path / "saves" / "red.state"))
+
+def test_pyboy_loop_presses_frames_and_saves(tmp_path, monkeypatch):
+    made = fake_pyboy(monkeypatch, tmp_path)
+    cfg = PyBoyConfig(rom=str(tmp_path / "red.gb"), state_file=str(tmp_path / "saves" / "red.state"))
     backend = PyBoyBackend(cfg, hold_frames=2, release_frames=3)
     frames, audio = [], []
     backend.on_frame = lambda w, h, data: frames.append((w, h, len(data)))
@@ -59,7 +64,7 @@ def test_pyboy_loop_presses_frames_and_saves(tmp_path, monkeypatch):
     backend.run_main_loop(stop)  # returns when the fake window "closes"
     presser.join(timeout=5)
 
-    emu = instances[0]
+    emu = made[0]
     assert emu.kwargs["no_input"] is True  # the game window ignores the keyboard
     assert emu.kwargs["sound_volume"] == 0  # sound goes to the overlay, so the window is muted
     (d1, _, b1), (u1, _, _), (d2, _, b2), (u2, _, _) = emu.events
@@ -74,10 +79,8 @@ def test_pyboy_loop_presses_frames_and_saves(tmp_path, monkeypatch):
 
 
 def test_window_events_are_read_and_quit_closes_cleanly(tmp_path, monkeypatch):
-    """With no_input, PyBoy stops reading window events, so the bot must: otherwise
-    Windows marks the window "Not Responding" and Ctrl+C / close are never seen."""
-    rom = tmp_path / "red.gb"
-    rom.write_bytes(b"rom")
+    """With no_input PyBoy stops reading window events, so the bot must: otherwise Windows marks
+    the window "Not Responding" and Ctrl+C / close are never seen."""
 
     class EndlessPyBoy(FakePyBoy):
         def tick(self):
@@ -88,29 +91,18 @@ def test_window_events_are_read_and_quit_closes_cleanly(tmp_path, monkeypatch):
 
     def get_events():
         pumps.append(1)
-        return [types.SimpleNamespace(type=256)] if len(pumps) == 30 else [types.SimpleNamespace(type=768)]
+        return [types.SimpleNamespace(type=256 if len(pumps) == 30 else 768)]  # 256: SDL_QUIT
 
     sdl2 = types.ModuleType("sdl2")
-    sdl2.SDL_QUIT = 256
-    sdl2.ext = types.SimpleNamespace(get_events=get_events)
+    sdl2.SDL_QUIT, sdl2.ext = 256, types.SimpleNamespace(get_events=get_events)
     monkeypatch.setitem(sys.modules, "sdl2", sdl2)
     monkeypatch.setitem(sys.modules, "sdl2.ext", sdl2.ext)
-    emus = []
-    monkeypatch.setitem(sys.modules, "pyboy", types.SimpleNamespace(
-        PyBoy=lambda *a, **k: emus.append(EndlessPyBoy(*a, **k)) or emus[-1]))
-
-    cfg = PyBoyConfig(rom=str(rom), state_file=str(tmp_path / "red.state"))
+    made = fake_pyboy(monkeypatch, tmp_path, EndlessPyBoy)
     stop = threading.Event()
-    PyBoyBackend(cfg).run_main_loop(stop)
+    PyBoyBackend(PyBoyConfig(rom=str(tmp_path / "red.gb"), state_file=str(tmp_path / "red.state"))).run_main_loop(stop)
 
-    assert len(pumps) == 30 and emus[0].frame == 30  # events read every frame; quit at frame 30
+    assert len(pumps) == 30 and made[0].frame == 30  # events read every frame; quit at frame 30
     assert (tmp_path / "red.state").read_bytes() == b"state" and stop.is_set()  # saved, stopped
-
-
-# ---- GamepadBackend (virtual Xbox controller) -------------------------------------------
-
-from twitchplayeragent.backends import GamepadBackend  # noqa: E402
-from twitchplayeragent.config import PAD_BUTTONS  # noqa: E402
 
 
 class FakePad:
@@ -127,43 +119,38 @@ class FakePad:
     def left_joystick_float(self, x_value_float, y_value_float): self.left = (x_value_float, y_value_float)
     def right_joystick_float(self, x_value_float, y_value_float): self.right = (x_value_float, y_value_float)
     def reset(self): self.__init__()
-
-    def update(self):
-        names = {b.replace("XUSB_GAMEPAD_", "") for b in self.buttons}
-        self.sent.append((names, self.lt, self.rt, self.left, self.right))
+    def update(self): self.sent.append((set(self.buttons), self.lt, self.rt, self.left, self.right))
 
 
 @pytest.fixture
 def gamepad(monkeypatch):
-    fake = types.SimpleNamespace(VX360Gamepad=FakePad, XUSB_BUTTON=types.SimpleNamespace(
-        **{m: m for m in GamepadBackend.XUSB.values()}))
-    monkeypatch.setitem(sys.modules, "vgamepad", fake)
-    monkeypatch.setattr(GamepadBackend, "GAP", 0)
-    cfg = load_config(["config.example.toml", "games/gta6.toml"])
-    backend = GamepadBackend(cfg.game.commands)
+    """GTA VI's commands on a fake controller; `gamepad.slept` lists every sleep, none real."""
+    xusb = types.SimpleNamespace(**{f"XUSB_GAMEPAD_{x}": x for x in PAD_BUTTONS.values() if x})
+    monkeypatch.setitem(sys.modules, "vgamepad", types.SimpleNamespace(VX360Gamepad=FakePad, XUSB_BUTTON=xusb))
+    backend = GamepadBackend(gta_cfg().game.commands)
+    backend.slept = []
+    monkeypatch.setattr("twitchplayeragent.backends.time", types.SimpleNamespace(sleep=backend.slept.append))
     backend.start()
     return backend
 
 
-def test_every_pad_button_maps_to_the_controller():
-    assert set(GamepadBackend.XUSB) | {"LT", "RT"} == set(PAD_BUTTONS)
-
-
 def test_gamepad_momentary_toggle_and_stop(gamepad):
-    pad = gamepad.pad
-    gamepad.press("jump")  # tap A, then let go
-    assert pad.sent[-2][0] == {"A"} and pad.sent[-1][0] == set()
+    pad, released = gamepad.pad, (set(), 0.0, 0.0, (0.0, 0.0), (0.0, 0.0))
+    gamepad.press("jump")  # tap A for 0.1 s, then let go
+    assert pad.sent[-2][0] == {"A"} and pad.sent[-1] == released
+    assert gamepad.slept == [0.1, GamepadBackend.GAP]
     gamepad.press("drive")  # RT stays down
-    gamepad.press("left")  # steer while accelerating, then back to straight
+    gamepad.press("left")  # steer for 0.6 s while accelerating, then straight again
     assert pad.sent[-2][2:4] == (1.0, (-1.0, 0.0)) and pad.sent[-1][2:4] == (1.0, (0.0, 0.0))
+    assert gamepad.slept[-2] == 0.6
     gamepad.press("goup")  # walking forward stays on...
     gamepad.press("goleft")  # ...a new direction on the same stick replaces it
     assert pad.sent[-1][3] == (-1.0, 0.0)
-    gamepad.press("goleft")  # same command again: off
+    gamepad.press("goleft")  # the same command again: off
     assert pad.sent[-1][3] == (0.0, 0.0) and pad.sent[-1][2] == 1.0  # still driving
     gamepad.press("stop")  # let go of everything
-    assert pad.sent[-1] == (set(), 0.0, 0.0, (0.0, 0.0), (0.0, 0.0))
-    gamepad.press("sprint")  # stick and LS together
+    assert pad.sent[-1] == released
+    gamepad.press("sprint")  # the stick and LS together
     assert pad.sent[-1][0] == {"LEFT_THUMB"} and pad.sent[-1][3] == (0.0, 1.0)
     gamepad.stop()  # exiting releases everything
-    assert pad.sent[-1] == (set(), 0.0, 0.0, (0.0, 0.0), (0.0, 0.0))
+    assert pad.sent[-1] == released

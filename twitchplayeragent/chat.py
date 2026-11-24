@@ -1,4 +1,4 @@
-"""Chat sources. Each yields ChatMessage objects as an async iterator."""
+"""Chat sources: async iterators of ChatMessage."""
 
 from __future__ import annotations
 
@@ -16,39 +16,30 @@ log = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class ChatMessage:
-    user: str  # stable login name, used for one-vote-per-user
-    display: str  # display name, shown on the overlay
+    user: str  # login name: the identity for one vote per user
+    display: str  # display name, for the overlay
     text: str
-    mod: bool = False  # the channel owner or a moderator (may change the ticker)
+    mod: bool = False  # the channel owner or a moderator: may use !mode and !ticker
 
 
 def parse_irc_line(line: str) -> ChatMessage | None:
-    """Parse a Twitch IRC PRIVMSG line (with or without IRCv3 tags)."""
+    """A Twitch IRC PRIVMSG line (IRCv3 tags optional) as a ChatMessage, else None."""
     tags: dict[str, str] = {}
-    rest = line
-    if rest.startswith("@"):
-        raw_tags, _, rest = rest[1:].partition(" ")
-        for item in raw_tags.split(";"):
-            k, _, v = item.partition("=")
-            tags[k] = v
-    if not rest.startswith(":"):
-        return None
-    prefix, _, rest = rest[1:].partition(" ")
+    if line.startswith("@"):
+        raw, _, line = line[1:].partition(" ")
+        tags = dict(item.partition("=")[::2] for item in raw.split(";"))
+    prefix, _, rest = line.partition(" ")
     command, _, rest = rest.partition(" ")
-    if command != "PRIVMSG":
+    login = prefix[1:].split("!", 1)[0].lower()
+    if not prefix.startswith(":") or command != "PRIVMSG" or not login:
         return None
-    _channel, _, text = rest.partition(" :")
-    login = prefix.split("!", 1)[0].lower()
-    if not login:
-        return None
-    display = tags.get("display-name") or login
     mod = tags.get("mod") == "1" or "broadcaster/" in tags.get("badges", "")
-    return ChatMessage(user=login, display=display, text=text, mod=mod)
+    return ChatMessage(login, tags.get("display-name") or login, rest.partition(" :")[2], mod)
 
 
 class TwitchIrcChat:
-    """Reads a Twitch channel's chat anonymously (read-only) over TLS IRC,
-    reconnecting with backoff if the connection drops."""
+    """A channel's chat, read anonymously (the bot never posts) over TLS IRC; reconnects with
+    backoff when the connection drops."""
 
     HOST, PORT = "irc.chat.twitch.tv", 6697
 
@@ -71,63 +62,46 @@ class TwitchIrcChat:
             backoff = min(backoff * 2, 60)
 
     async def _session(self) -> AsyncIterator[ChatMessage]:
-        reader, writer = await asyncio.open_connection(
-            self.HOST, self.PORT, ssl=ssl.create_default_context()
-        )
+        reader, writer = await asyncio.open_connection(self.HOST, self.PORT, ssl=ssl.create_default_context())
         try:
-            def send(line: str) -> None:
-                writer.write((line + "\r\n").encode())
-
-            send("CAP REQ :twitch.tv/tags twitch.tv/commands")
-            send(f"NICK {self.nick}")
-            send(f"JOIN #{self.channel}")
+            for line in ("CAP REQ :twitch.tv/tags twitch.tv/commands", f"NICK {self.nick}", f"JOIN #{self.channel}"):
+                writer.write(f"{line}\r\n".encode())
             await writer.drain()
             log.info("Joined #%s as %s", self.channel, self.nick)
-
             while True:
                 raw = await reader.readline()
                 if not raw:
                     raise ConnectionError("server closed the connection")
                 line = raw.decode("utf-8", errors="replace").rstrip("\r\n")
                 if line.startswith("PING"):
-                    send("PONG" + line[4:])
+                    writer.write(f"PONG{line[4:]}\r\n".encode())
                     await writer.drain()
-                    continue
-                if " RECONNECT" in line:
+                elif " RECONNECT" in line:
                     raise ConnectionError("server requested reconnect")
-                msg = parse_irc_line(line)
-                if msg is not None:
+                elif (msg := parse_irc_line(line)) is not None:
                     yield msg
         finally:
             writer.close()
 
 
 class StdinChat:
-    """Local testing: type lines like `ash: up` (or just `up`) into the terminal."""
+    """Lines typed in the terminal, `ash: up` or just `up`. Whoever types there runs the bot, so
+    they count as a moderator."""
 
     async def __aiter__(self) -> AsyncIterator[ChatMessage]:
         loop = asyncio.get_running_loop()
         lines: asyncio.Queue[str] = asyncio.Queue()
 
-        # A daemon thread, not run_in_executor: executor threads are joined at
-        # exit, which would hang the program on a blocked readline() after the
-        # game window is closed.
-        def reader() -> None:
+        def reader() -> None:  # a daemon thread: an executor thread is joined at exit and hung it
             for raw in sys.stdin:
                 loop.call_soon_threadsafe(lines.put_nowait, raw)
             loop.call_soon_threadsafe(lines.put_nowait, "")  # EOF
 
         threading.Thread(target=reader, name="stdin", daemon=True).start()
-        while True:
-            line = await lines.get()
-            if not line:
-                return
+        while line := await lines.get():
             line = line.strip()
             if not line or line.startswith("#"):
                 continue
             user, sep, text = line.partition(":")
-            if not sep:
-                user, text = "you", line
-            user = user.strip() or "you"
-            # Whoever types in the terminal runs the bot, so they count as a moderator.
-            yield ChatMessage(user=user.lower(), display=user, text=text.strip(), mod=True)
+            user = user.strip() if sep and user.strip() else "you"
+            yield ChatMessage(user.lower(), user, (text if sep else line).strip(), mod=True)

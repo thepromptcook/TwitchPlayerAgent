@@ -1,10 +1,14 @@
-# Grand Theft Auto VI on an Xbox Series X|S, played through Xbox Remote Play in the Xbox app
-# on this PC: the bot's virtual Xbox controller acts as a controller plugged into the PC.
-# Layer it on your normal config, which keeps your channel, overlay, meter and AI settings:
+# Grand Theft Auto VI on an Xbox Series X|S, through Xbox Remote Play in the Xbox app on this PC
+# (setup: README, "GTA 6 on Xbox"). Layer it on your config, which keeps your channel and overlay:
 #   python -m twitchplayeragent -c config.toml -c games/gta6.toml
-# Needs pip install -e ".[gamepad]" (installs the ViGEmBus driver), the Xbox app's Remote Play
-# window in front, story mode, and GTA VI's Default control scheme.
-# Setup and controls: .claude/skills/gta6-xbox/SKILL.md
+#
+# [game.commands]: chat word = { ... }, lowercase letters, never wait, anarchy or democracy.
+#   button       A B X Y LB RB LT RT LS RS START BACK UP DOWN LEFT RIGHT (LT/RT: the triggers)
+#   stick        "left" or "right", pushed to x and y, each -1 to 1 (y = 1 is up)
+#   seconds      how long a press lasts (default 0.1)
+#   toggle       true: stays on until the command is repeated or a release command
+#   release      true: let go of everything that's on
+#   description  what it does, for AI mode
 
 [game]
 name = "Grand Theft Auto VI"
@@ -14,9 +18,9 @@ aiming, the target locks on. Commands described as on/off or "until stop" stay a
 repeated or until stop, so turn them off when chat moves on. Chat may say things like \
 "steal that car", "drive to the beach", "shoot him" or "run away"."""
 
-# Command names follow Twitch Plays Pokemon: up/down/left/right move, a and b are the
-# triggers (shoot, aim). Not mapped on purpose: View (map), Menu (pause), the D-pad (phone,
-# radio): chat would get stuck in menus.
+# The words follow Twitch Plays Pokemon: up/down/left/right move, a and b are the triggers (shoot,
+# aim). Not mapped on purpose: View (map), Menu (pause), the D-pad (phone, radio), so chat can't
+# get stuck in menus.
 [game.commands]
 up        = { stick = "left", y = 1, seconds = 1.0, description = "move forward briefly (steers straight in a car)" }
 down      = { stick = "left", y = -1, seconds = 1.0, description = "move backward briefly" }

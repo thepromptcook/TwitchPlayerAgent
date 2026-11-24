@@ -1,5 +1,6 @@
-# Copy to config.toml and edit. Every key is optional; defaults are shown.
-# Other games: layer a game file on top, which keeps your channel and overlay settings:
+# Copy to config.toml and edit. This is the reference for every setting, and each value shown is
+# the default, so you can delete any line you don't change. Other games: layer a game file on top,
+# which keeps your channel and overlay settings:
 #   python -m twitchplayeragent -c config.toml -c games/gta6.toml
 
 [twitch]
@@ -9,19 +10,17 @@ channel = "your_channel_name"   # chat is read anonymously; the bot never posts
 name = "Pokemon Red"
 # Add "select" to re-enable it. The original run disabled it after it was used to soft-reset.
 buttons = ["a", "b", "up", "down", "left", "right", "start"]
-# AI mode only: what the buttons do in this game and what chat may ask for.
-# Leave it out to use the built-in Pokémon Red notes.
+# AI mode: what the buttons do in this game and what chat may ask for. Leave it out to use the
+# built-in Pokémon Red notes.
 # ai_notes = "Original Game Boy game. Each press is one tap; ..."
+# Controller games replace buttons with a [game.commands] table: see games/gta6.toml.
 
 [anarchy]
-# Inputs waiting to run; when full, the oldest are dropped so lag stays bounded.
-max_queue = 100
+max_queue = 100         # inputs waiting to run; when full, the oldest are dropped so lag stays bounded
 
 [democracy]
-# Seconds per voting round (the round opens on its first vote).
-window_seconds = 20
-# Max total presses in one compound input, e.g. "start9".
-max_presses = 9
+window_seconds = 20     # seconds per voting round (a round opens on its first vote)
+max_presses = 9         # most presses in one compound input, e.g. "start9"
 
 [meter]
 to_democracy = 0.80     # share of live votes needed to switch anarchy -> democracy
@@ -31,9 +30,8 @@ min_votes = 5           # don't switch on fewer live votes than this
 start_mode = "anarchy"
 
 [ai]
-# true: start with an AI reading all chat (commands and plain English) and picking the presses,
-# instead of anarchy/democracy. Either way, "!mode ai" in your chat switches to it mid-stream
-# once the provider below is set up, and "!mode anarchy" / "!mode democracy" switch back.
+# true: start with an AI reading all chat (commands and plain English) and picking the presses.
+# Either way, "!mode ai" in your chat switches to it mid-stream once the provider is set up.
 enabled = false
 # "claude": Anthropic API. Needs pip install -e ".[claude]" and ANTHROPIC_API_KEY.
 # "ollama": a free local model. Needs Ollama running and: ollama pull qwen3.5:27b
@@ -45,18 +43,18 @@ window_seconds = 10     # chat per decision
 max_presses = 9         # presses per decision
 
 [backend]
-type = "pyboy"          # "pyboy" (built-in emulator), "keyboard" (external emulator), or "log"
-                        # ("gamepad", a virtual Xbox controller, comes with a game file like games/gta6.toml)
-hold_frames = 2         # PyBoy only: frames a button is held (60 frames = 1 second)
-release_frames = 2      # PyBoy only: frames between presses
+type = "pyboy"          # "pyboy" (built-in emulator), "keyboard" (external emulator) or "log";
+                        # "gamepad" (a virtual Xbox controller) comes with a game file
+hold_frames = 2         # PyBoy: frames a button is held (60 frames = 1 second)
+release_frames = 2      # PyBoy: frames between presses
 
 [backend.pyboy]
-rom = "roms/pokemon_red.gb"           # your own legally obtained ROM
-state_file = "saves/pokemon_red.state"
+rom = "roms/pokemon_red.gb"             # your own legally obtained ROM
+state_file = "saves/pokemon_red.state"  # autosaved and resumed on start; delete it to start over
 autosave_minutes = 5
-window = "SDL2"                       # "null" runs headless
+window = "SDL2"                         # "null" runs headless
 scale = 4
-window_keyboard = false               # true = your keyboard also plays when the game window is focused
+window_keyboard = false                 # true: your keyboard also plays when the game window is focused
 
 [backend.keyboard]
 hold_ms = 50
@@ -73,12 +71,11 @@ left = "left"
 right = "right"
 
 [overlay]
-# One OBS Browser Source: http://localhost:8080 at 1920x1080. Shows the game, the input list,
-# the anarchy/democracy meter and votes, and keeps working when the game window is minimized.
+# One OBS Browser Source: http://localhost:8080 at 1920x1080, with the game, meter, votes and inputs.
 enabled = true
 port = 8080
-max_lines = 20
+max_lines = 20          # recent inputs listed
 audio = true            # game sound through the Browser Source (the game window is muted)
-ticker = ""             # scrolling message along the bottom; change it live with "!ticker <text>"
-                        # in your own chat (you or a mod), "!ticker" alone clears it
-ticker_file = "saves/ticker.txt"   # where the latest !ticker message is kept across restarts
+ticker = ""             # a scrolling message along the bottom; "!ticker <text>" in your chat
+                        # (you or a mod) changes it live, "!ticker" alone clears it
+ticker_file = "saves/ticker.txt"   # keeps the latest !ticker across restarts

@@ -1,12 +1,12 @@
 ---
 name: pokemon-red
-description: Game knowledge for running Pokémon Red on TwitchPlayerAgent the way the original 2014 Twitch Plays Pokémon did - Season 1 rules and why, ROM and PyBoy setup, input timing, AI-mode game notes, and the OBS/Twitch streaming setup. Use with twitchplayeragent-core when tuning, streaming or debugging Pokémon Red, or as the template for adding another game.
+description: Pokémon Red on TwitchPlayerAgent the way the 2014 Twitch Plays Pokémon ran it - the Season 1 rules and why, ROM and saves, input timing, AI-mode notes, streaming. Use with twitchplayeragent-core when tuning, streaming or debugging Pokémon Red, or as the template for another Game Boy game.
 ---
 
-# Pokémon Red on TwitchPlayerAgent
+# Pokémon Red
 
-Everything Pokémon-specific is config defaults, `[game].ai_notes`, and this file. The engine
-is in `twitchplayeragent-core`. A fresh config only needs `[twitch].channel`.
+Pokémon Red is the config defaults (`[game]`, `[backend.pyboy]`; see `config.example.toml`) plus
+this file; the engine is in `twitchplayeragent-core`, the owner's steps in `README.md`.
 
 ## The original rules (Twitch Plays Pokémon, Season 1, Feb 2014)
 | Original | Here |
@@ -19,51 +19,41 @@ is in `twitchplayeragent-core`. A fresh config only needs `[twitch].channel`.
 | Compound inputs: `start9`, `upleft`; a `wait` command | `parse_democracy`, ≤ 9 presses |
 | Chat votes `anarchy` / `democracy` like buttons | `parse_mode_vote` |
 | 80 % to enter democracy, 50 % to leave | `to_democracy = 0.8`, `to_anarchy = 0.5` |
-Undocumented in the sources, so this project's choices (keep them configurable): round length
-20 s (reports say 10–30 s), per-user latest vote, 60 s vote lifetime, `min_votes = 5`.
-`start9` was a famous protest vote: keep it valid.
+
+The sources don't say, so these are this project's choices (keep them configurable): 20 s rounds
+(reports say 10–30 s), each user's latest vote, a 60 s vote lifetime, `min_votes = 5`. `start9`
+was a famous protest vote: keep it valid.
 
 ## ROM and saves
-- Never download or commit ROMs. The owner dumps their own cartridge (GB Operator, GBxCart RW)
-  to `roms/pokemon_red.gb`; `roms/` is gitignored, so they create it after a clone.
-- Progress: `saves/pokemon_red.state`, autosaved every 5 min and on exit, resumed on start.
-  Delete it to start over. PyBoy also keeps the cartridge save (`.ram`).
+- Never download or commit ROMs. The owner dumps their own cartridge (GB Operator, GBxCart RW) to
+  `roms/pokemon_red.gb`; `roms/` is gitignored, so it's created after a clone.
+- `saves/pokemon_red.state`: autosaved every 5 min and on exit, resumed on start; delete it to start
+  over. PyBoy also keeps the cartridge save (`.ram`).
 
 ## Input timing
-- One press = down `hold_frames` (2), up `release_frames` (2), at 60 frames/s. Red reads the
+- One press is down `hold_frames` (2) then up `release_frames` (2) at 60 frames/s; Red reads the
   joypad every frame. Raise `hold_frames` to 4 if presses go missing; lower `release_frames` if
   walking feels slow.
-- One direction tap turns the player if facing elsewhere, else moves one tile. Text boxes need
-  A (or B) per page. Cancelling an evolution needs repeated B.
+- A direction tap turns the player if facing elsewhere, else moves one tile. Text boxes need A (or
+  B) per page; cancelling an evolution needs repeated B.
 
-## AI mode notes
-`[game].ai_notes` (default `POKEMON_RED_AI_NOTES` in `config.py`) is the only game text the AI
-gets: original Game Boy game, tap semantics, what A, B and Start do, example requests ("walk into
-the tall grass", "use thunderbolt", "run away"). The AI can't see the screen, so it follows
-explicit commands well and plain-English goals only roughly; Claude does better than local
-models. Keep notes short, about inputs, not walkthrough content.
+## AI mode
+`[game].ai_notes` (the default in `config.py`) is the only game text the AI gets: the original Game
+Boy game, tap semantics, what A, B and Start do, example requests. The AI can't see the screen, so
+it follows explicit commands well and plain-English goals only roughly; Claude does better than
+local models. Keep the notes about inputs, not walkthrough content.
 
-## Streaming (OBS + Twitch)
-- One Browser Source: `http://localhost:8080`, 1920×1080, "Control audio via OBS" ticked. It
-  carries picture (game at an exact 7× scale, thin bar below so Red's bottom text boxes stay
-  visible) and sound. The PyBoy window can be minimized. `?layout=sidebar` = the original's
-  right-hand input list.
-- OBS: Video 60 FPS (30 halves the game's frames), NVENC, ~6000 Kbps, keyframe interval 2,
-  Stream Delay off. Twitch: Creator Dashboard → Settings → Stream → Low latency (2–4 s delay).
-- To hear the game while streaming: Audio Monitoring "Monitor and Output" on the source.
-- Scrolling message: `[overlay].ticker`; live changes with `!ticker <text>` in the owner's chat.
-- Phone control: an OBS WebSocket remote (OBS Blade on Android), and Claude working on the PC
-  through the Claude desktop app with the repo folder connected.
-- `type = "keyboard"` with mGBA works too, but mGBA must keep keyboard focus and needs Window
-  Capture plus Application Audio Capture; PyBoy is the convenient default.
+## Streaming
+- The owner's OBS steps are in the README (one Browser Source carries picture and sound; the PyBoy
+  window can be minimized). Settings that fixed choppy video: OBS at 60 FPS, NVENC ~6000 Kbps,
+  keyframe interval 2. Twitch Low latency mode keeps the delay at 2–4 s.
+- Phone control: OBS Blade over Tailscale, and Claude on the PC through the Claude desktop app with
+  the repo folder connected.
+- mGBA (`type = "keyboard"`) works too but needs keyboard focus, Window Capture and Application Audio
+  Capture; PyBoy is the convenient default.
 
-## Testing on the owner's PC
-1. `python -m twitchplayeragent -c config.toml --stdin`: type `start`, `a` in the terminal;
-   each shows `PRESS …` and the game reacts. Check `http://localhost:8080` in a browser.
-2. Live: run without `--stdin`, type in `twitch.tv/popout/<channel>/chat` (works offline too).
-3. Window freezes: `saves/hang-report.txt` (empty = no freeze) shows where it stuck.
-
-## Adding another game later
-Another Game Boy game: pick `buttons` from the core's eight, write `ai_notes`, set ROM and
-state paths, add a skill like this one. A controller game: a `games/<game>.toml` with a
-`[game.commands]` table and backend `gamepad`, like `gta6-xbox`. Neither changes the core.
+## Checking on the owner's PC
+1. `python -m twitchplayeragent -c config.toml --stdin`: type `start`, `a`; each shows `PRESS …`
+   and the game reacts; `http://localhost:8080` shows the stream page.
+2. Live: run without `--stdin` and type in `twitch.tv/popout/<channel>/chat` (works offline too).
+3. A freeze: `saves/hang-report.txt` (empty = no freeze) shows where it stuck.

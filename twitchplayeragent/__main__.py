@@ -1,4 +1,4 @@
-"""Command-line entry point: `python -m twitchplayeragent --config config.toml`."""
+"""Twitch chat plays a game, Twitch Plays Pokémon style: python -m twitchplayeragent -c config.toml"""
 
 from __future__ import annotations
 
@@ -22,15 +22,13 @@ log = logging.getLogger("twitchplayeragent")
 
 
 def setup_logging(verbose: bool) -> logging.handlers.QueueListener:
-    """Log calls only queue the line; a background thread prints it. A terminal that
-    stops accepting output (see below) then can't freeze the game loop."""
+    """Log calls only queue the line and a thread prints it, so a stalled terminal can't freeze
+    the game loop."""
     console = logging.StreamHandler()
     console.setFormatter(logging.Formatter("%(asctime)s %(levelname)-7s %(name)s: %(message)s"))
     lines: queue.SimpleQueue = queue.SimpleQueue()
     queued = logging.handlers.QueueHandler(lines)
-    # Pass the bare message through: without this, basicConfig gives the queue handler its
-    # default "INFO:name:" format and every line printed its prefix twice.
-    queued.setFormatter(logging.Formatter("%(message)s"))
+    queued.setFormatter(logging.Formatter("%(message)s"))  # basicConfig's default doubled every prefix
     logging.basicConfig(level=logging.DEBUG if verbose else logging.INFO, handlers=[queued])
     listener = logging.handlers.QueueListener(lines, console)
     listener.start()
@@ -38,9 +36,8 @@ def setup_logging(verbose: bool) -> logging.handlers.QueueListener:
 
 
 def stop_on_ctrl_c(stop: threading.Event):
-    """A SIGINT handler: the first Ctrl+C asks the game loop to save and quit; a second
-    one forces it. Needed because a KeyboardInterrupt that lands inside PyBoy's frame
-    limiter (compiled code) is printed as "Exception ignored" and swallowed."""
+    """A SIGINT handler: the first Ctrl+C saves and quits, a second forces. A KeyboardInterrupt
+    raised inside PyBoy's compiled frame limiter is swallowed, so PyBoy can't take it itself."""
 
     def handler(signum, frame) -> None:
         if stop.is_set():
@@ -52,17 +49,15 @@ def stop_on_ctrl_c(stop: threading.Event):
 
 
 def disable_quick_edit() -> None:
-    """Windows: clicking in a terminal with QuickEdit on starts a text selection that
-    pauses every program printing to it until a key is pressed, which froze the
-    game window ("Not Responding"). Turn QuickEdit off for this terminal."""
+    """Windows: a click in a QuickEdit console pauses every program printing to it, which froze
+    the game window ("Not Responding"). Turn QuickEdit off for this console."""
     if sys.platform != "win32":
         return
     try:
         import ctypes
 
         kernel32 = ctypes.windll.kernel32
-        handle = kernel32.GetStdHandle(-10)  # STD_INPUT_HANDLE
-        mode = ctypes.c_uint32()
+        handle, mode = kernel32.GetStdHandle(-10), ctypes.c_uint32()  # STD_INPUT_HANDLE
         if kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
             ENABLE_QUICK_EDIT_MODE, ENABLE_EXTENDED_FLAGS = 0x0040, 0x0080
             kernel32.SetConsoleMode(handle, (mode.value & ~ENABLE_QUICK_EDIT_MODE) | ENABLE_EXTENDED_FLAGS)
@@ -72,23 +67,18 @@ def disable_quick_edit() -> None:
 
 def main(argv: list[str] | None = None) -> None:
     p = argparse.ArgumentParser(prog="twitchplayeragent", description=__doc__)
-    p.add_argument("-c", "--config", action="append",
-                   help="TOML config (see config.example.toml); give it again to layer a game "
-                        "on top, e.g. -c config.toml -c games/gta6.toml")
-    p.add_argument("--stdin", action="store_true",
-                   help="read chat from the terminal instead of Twitch (lines like `ash: up`)")
-    p.add_argument("--dry-run", action="store_true",
-                   help="log button presses instead of sending them to a game")
+    p.add_argument("-c", "--config", action="append", help="TOML config (see config.example.toml); "
+                   "repeat it to layer a game on top: -c config.toml -c games/gta6.toml")
+    p.add_argument("--stdin", action="store_true", help="read chat from the terminal (lines like `ash: up`)")
+    p.add_argument("--dry-run", action="store_true", help="log presses instead of sending them to a game")
     p.add_argument("-v", "--verbose", action="store_true")
     args = p.parse_args(argv)
 
     listener = setup_logging(args.verbose)
     disable_quick_edit()
-
     cfg = load_config(args.config)
     if args.dry_run:
         cfg.backend.type = "log"
-
     if cfg.ai.enabled:
         problem = unavailable(cfg)
         if problem:
@@ -106,13 +96,11 @@ def main(argv: list[str] | None = None) -> None:
         if cfg.overlay.audio:
             backend.on_audio = overlay.add_audio
     engine = Engine(cfg, overlay)
-
     backend.start()
     stop = threading.Event()
     if args.stdin:
-        log.info("Type commands in THIS terminal, e.g. `up` or `ash: a`, then Enter. "
-                 "If a game window opens, click back here first; keys typed in "
-                 "the game window are not chat.")
+        log.info("Type commands in THIS terminal, e.g. `up` or `ash: a`, then Enter. If a game "
+                 "window opens, click back here first; keys typed in the game window are not chat.")
 
     def run_engine() -> None:
         try:
@@ -123,7 +111,7 @@ def main(argv: list[str] | None = None) -> None:
             stop.set()
 
     try:
-        if backend.needs_main_thread:
+        if backend.needs_main_thread:  # SDL windows need the main thread, so the engine moves
             threading.Thread(target=run_engine, name="engine", daemon=True).start()
             signal.signal(signal.SIGINT, stop_on_ctrl_c(stop))
             backend.run_main_loop(stop)  # returns when the window closes or stop is set
@@ -136,7 +124,7 @@ def main(argv: list[str] | None = None) -> None:
         backend.stop()
         if overlay is not None:
             overlay.stop()
-        listener.stop()  # flush remaining log lines
+        listener.stop()  # flush the remaining log lines
 
 
 if __name__ == "__main__":

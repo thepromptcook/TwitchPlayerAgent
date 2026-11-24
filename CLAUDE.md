@@ -1,32 +1,18 @@
 # TwitchPlayerAgent
 
-Twitch chat plays Pokémon Red with the original Twitch Plays Pokémon rules (anarchy,
-democracy, 80/50 mode meter), plus an optional AI mode (Claude or a local Ollama model),
-streamed through one OBS Browser Source. GTA VI on Xbox uses the same rules through a
-virtual Xbox controller and Xbox Remote Play.
+Twitch chat plays Pokémon Red (PyBoy) and GTA VI (an Xbox through Remote Play) with the original
+Twitch Plays Pokémon rules, plus an optional AI mode (Claude or Ollama), streamed through one OBS
+Browser Source. Work in this repo, not TwitchPlaysTest, unless the owner says otherwise.
 
-Start from `.claude/skills/twitchplayeragent-core/SKILL.md` (module map, workflow), then read
-only the reference for the area you change. Game knowledge: `.claude/skills/pokemon-red/SKILL.md`
-and `.claude/skills/gta6-xbox/SKILL.md` (GTA VI on Xbox via Remote Play, `games/gta6.toml`).
+Start from the `twitchplayeragent-core` skill (`.claude/skills/twitchplayeragent-core/SKILL.md`:
+module map, principles, workflow), then read only the reference for the area you change. Game
+knowledge is in the `pokemon-red` and `gta6-xbox` skills.
 
-## Keep it simple
-The owner asked not to overcomplicate the codebase: nine modules plus `overlay.html`, four flags
-(`-c` (repeatable, to layer a game file), `--stdin`, `--dry-run`, `-v`). Prefer a config setting
-over a flag, a function over a class, and an existing module over a new one. Game knowledge is
-config and skill text, never core code: a new game is a file in `games/` plus a skill.
-Work in this repo, not TwitchPlaysTest, unless the owner says otherwise.
-
-## Work efficiently
-- `grep -n` first, then read only what you change; don't open `overlay.html` for Python work.
-- `python -m pytest` (~5 s, terse) after every change; `pytest -m browser` or
-  `python tools/overlay_check.py` when the overlay page changes.
-- Commit straight to `main`; the owner prefers that over pull requests.
-- Tell the owner only the steps a change needs (usually `git pull` and restart the bot; a
-  reinstall only when `pyproject.toml` dependencies change). Don't repeat the full setup.
-- Windows, real PyBoy, OBS and Twitch can only be checked on the owner's PC: ask for the
-  terminal output or `saves/hang-report.txt`.
-
-## Keep the skills in sync
-Update the matching skill file in the same commit as a behavior, module, config or gotcha
-change. `tests/test_skills.py` fails if a skill file passes 200 lines, a reference link is
-broken, or a module or config field is missing from the core skill.
+## The owner's rules
+- Keep it simple: no new modules or flags without a real need, config over flags, and a game is a
+  `games/` file plus a skill, never core code.
+- Run `python -m pytest` (~2 s) after every change, and commit straight to `main` (no pull requests).
+- Update the matching skill, `config.example.toml` or README in the same commit as the change;
+  `tests/test_docs.py` fails when they drift.
+- Tell the owner only the steps a change needs (usually `git pull` and restart the bot; a reinstall
+  only when `pyproject.toml` dependencies change).

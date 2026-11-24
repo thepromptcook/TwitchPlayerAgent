@@ -1,60 +1,49 @@
 ---
 name: gta6-xbox
-description: Game knowledge for playing GTA VI on an Xbox Series X|S with TwitchPlayerAgent - Xbox Remote Play bridge, the virtual Xbox controller, GTA VI's Default control scheme mapped to chat commands (games/gta6.toml), OBS capture and what's still unverified. Use with twitchplayeragent-core when setting up, tuning or debugging GTA VI, or adding another controller game.
+description: GTA VI on an Xbox Series X|S through Xbox Remote Play and a virtual Xbox controller (games/gta6.toml) - how the bridge works, why the commands are mapped as they are, tuning, and what's unverified. Use with twitchplayeragent-core when setting up, tuning or debugging GTA VI, or adding another controller game.
 ---
 
 # GTA VI on Xbox (`games/gta6.toml`)
 
-GTA VI is console-only (PS5, Xbox Series X|S; PC later). The bot runs on the PC as a virtual
-Xbox controller (`[backend].type = "gamepad"`, vgamepad + ViGEmBus); Xbox Remote Play in the Xbox
-app forwards it to the console. Everything game-specific is `games/gta6.toml`, layered on the
-owner's main config: `python -m twitchplayeragent -c config.toml -c games/gta6.toml`.
+GTA VI is console-only (PS5, Xbox Series X|S; PC later). The bot is a virtual Xbox 360 controller
+(`GamepadBackend`: vgamepad + ViGEmBus) and Xbox Remote Play in the Xbox app forwards it to the
+console. All of the game is `games/gta6.toml`, layered on the owner's config; the owner's steps
+are in the README ("GTA 6 on Xbox").
 
-## Setup on the owner's PC
-1. Xbox: Settings > Devices & connections > Remote features > Enable remote features.
-2. PC: `pip install -e ".[gamepad]"` (vgamepad runs the ViGEmBus installer; accept it). **Start
-   the bot first, then the Xbox app**: the app only enumerates controllers at startup, so it must
-   be fully quit (tray/Task Manager) and reopened once the virtual pad exists; closing the Remote
-   Play window isn't enough. Verified on the owner's PC. Then Remote Play → console → GTA VI.
-3. GTA VI: **Default** control scheme (Settings > Control Scheme). Classic moves run to A and
-   jump to X, so `sprint` and `jump` would need new buttons. **Story mode only**: GTA Online has
-   anti-cheat and other players.
-4. Keep the Xbox app's Remote Play window in front (it likely only reads controllers while
-   focused); a PC left alone and managed from a phone suits this.
-5. OBS: Window Capture of the Xbox app (or an HDMI capture card from the console) under the
-   Browser Source; with no emulator frames the page's game area is transparent and only the
-   bottom bar shows. Sound: Application Audio Capture of the Xbox app (or the capture card).
-   Twitch: content classification for a mature-rated game.
+## Must-knows
+- **The Xbox app only looks for controllers when it starts.** Start the bot, then fully quit
+  (tray icon or Task Manager) and reopen the Xbox app; closing the Remote Play window isn't
+  enough. The pad worked in `joy.cpl` but Remote Play ignored it until then (verified on the
+  owner's PC); `GamepadBackend.start` logs the reminder.
+- **Default** control scheme: Classic moves run to A and jump to X. **Story mode only**: GTA Online
+  has anti-cheat and other players.
+- Keep the Remote Play window in front (it likely reads controllers only while focused); a PC left
+  alone and managed from a phone suits this.
+- OBS: a Window Capture of the Xbox app (or a capture card) under the Browser Source, whose game
+  area is transparent with no emulator; Application Audio Capture of the Xbox app for sound;
+  Twitch content classification for a mature game.
 
-## Commands (Default scheme)
-| chat | controller | kind |
-|---|---|---|
-| up / down / left / right | left stick 1 s / 0.6 s | brief move; steers in cars |
-| goup / godown / goleft / goright | left stick | toggle (new direction replaces) |
-| sprint | left stick up + LS | toggle: run (GTA VI runs on a left-stick click) |
-| a / b | RT / LT | shoot / aim toggle (lock-on) |
-| jump / crouch / cover / melee | A / B / RB / X | tap |
-| enter / holster | Y / LB | vehicle in/out, interact / draw-holster |
-| drive / reverse | RT / LT | toggle accelerate / brake-reverse |
-| handbrake | A 0.6 s | in vehicles |
-| lookleft / lookright / lookup / lookdown / lookback | right stick | brief camera turns |
-| stop | | release everything toggled |
-Not mapped on purpose: View (map), Menu (pause), D-pad (phone, radio), hold LB (weapon wheel).
-`b` and `reverse` share LT, and `a` and `drive` share RT: toggling one turns the shared trigger off.
-
-## Tuning
-- Anarchy runs every command in order, and moves last up to a second, so `[anarchy].max_queue`
-  is 10 to keep the backlog short. Democracy rounds are 5 s (Pokémon's 20 s is too slow).
-- Stick strengths and seconds live in the command table; camera turns are the likeliest to
-  need tuning against GTA's camera sensitivity.
-- AI mode works unchanged: the prompt lists each command with its `description`, and
-  `ai_notes` explains toggles. The AI can't see the screen, so explicit commands work best.
+## How the commands are mapped
+- The Twitch Plays words keep their meaning: `up` `down` `left` `right` push the left stick briefly
+  (1 s / 0.6 s; they steer in cars), `a` = RT (shoot), `b` = LT toggle (aim; it locks on).
+- Toggles stay on until repeated or `stop` (a `release` command): `goup`/`godown`/`goleft`/`goright`
+  (a new direction on the same stick replaces the old), `sprint` (stick up + LS: GTA VI runs on a
+  left-stick click), `drive` (RT), `reverse` (LT). Momentary commands act on top, so `left` steers
+  while `drive` holds RT.
+- `a` and `drive` share RT, `b` and `reverse` share LT: toggling one turns the shared trigger off.
+- Taps: `jump` A, `crouch` B, `cover` RB, `melee` X, `enter` Y (vehicles, interact), `holster` LB,
+  `handbrake` A for 0.6 s. Camera: `lookleft`/`lookright`/`lookup`/`lookdown`/`lookback` push the
+  right stick briefly; to turn further, raise their `seconds` (or `x`).
+- Not mapped on purpose: View (map), Menu (pause), the D-pad (phone, radio), holding LB (weapon
+  wheel): chat would get stuck in menus.
+- `[anarchy].max_queue = 10` (commands last up to a second, so the backlog stays short) and 5 s
+  democracy rounds (Pokémon's 20 s is too slow for driving).
+- AI mode works unchanged: the prompt lists each command's `description`, and `ai_notes` explains
+  the toggles. It can't see the screen, so explicit commands work best.
 
 ## Unverified (only checkable on the owner's PC)
-- Whether the Xbox app needs focus to read it (it does accept the virtual controller, after a
-  restart; checked in Windows with `joy.cpl`, which shows the pad's buttons and axes moving).
-- The button map, taken from published Default-scheme guides; handbrake on A and LS-click
-  running are the least certain.
+- The button map comes from published Default-scheme guides; handbrake on A and running on an LS
+  click are the least certain. The camera turn sizes likely need tuning to GTA's sensitivity.
 - Remote Play adds roughly 50–100 ms on top of Twitch's delay.
-- ViGEmBus is retired upstream (no updates) but still installs and works; a future Windows
-  update could break it.
+- ViGEmBus is retired upstream (no updates) but still installs and works; a Windows update could
+  break it.
