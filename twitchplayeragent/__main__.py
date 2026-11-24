@@ -42,6 +42,10 @@ def main(argv: list[str] | None = None) -> None:
 
     backend.start()
     stop = threading.Event()
+    if args.stdin:
+        log.info("Type commands in THIS terminal, e.g. `up` or `ash: a`, then Enter. "
+                 "If a game window opens, click back here first; keys typed in "
+                 "the game window are not chat.")
 
     def run_engine() -> None:
         try:

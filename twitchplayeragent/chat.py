@@ -7,6 +7,7 @@ import logging
 import random
 import ssl
 import sys
+import threading
 from dataclasses import dataclass
 from typing import AsyncIterator
 
@@ -108,8 +109,19 @@ class StdinChat:
 
     async def __aiter__(self) -> AsyncIterator[ChatMessage]:
         loop = asyncio.get_running_loop()
+        lines: asyncio.Queue[str] = asyncio.Queue()
+
+        # A daemon thread, not run_in_executor: executor threads are joined at
+        # exit, which would hang the program on a blocked readline() after the
+        # game window is closed.
+        def reader() -> None:
+            for raw in sys.stdin:
+                loop.call_soon_threadsafe(lines.put_nowait, raw)
+            loop.call_soon_threadsafe(lines.put_nowait, "")  # EOF
+
+        threading.Thread(target=reader, name="stdin", daemon=True).start()
         while True:
-            line = await loop.run_in_executor(None, sys.stdin.readline)
+            line = await lines.get()
             if not line:
                 return
             line = line.strip()

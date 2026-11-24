@@ -68,8 +68,14 @@ class PyBoyBackend(Backend):
                 "[backend.pyboy].rom in your config."
             )
 
-        pyboy = PyBoy(str(rom), window=self.cfg.window, scale=self.cfg.scale)
+        pyboy = PyBoy(
+            str(rom),
+            window=self.cfg.window,
+            scale=self.cfg.scale,
+            no_input=not self.cfg.window_keyboard,
+        )
         pyboy.set_emulation_speed(1)  # real time, like a real Game Boy
+        log.info("Pokémon Red is running. Close the game window to save and quit.")
 
         state = Path(self.cfg.state_file)
         if state.is_file():

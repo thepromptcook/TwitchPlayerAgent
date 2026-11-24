@@ -39,6 +39,7 @@ state_file = "saves/pokemon_red.state"
 autosave_minutes = 5
 window = "SDL2"                       # "null" runs headless
 scale = 4
+window_keyboard = false               # true = your keyboard also plays when the game window is focused
 
 [backend.keyboard]
 hold_ms = 50

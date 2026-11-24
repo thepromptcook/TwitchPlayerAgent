@@ -17,6 +17,6 @@ class LogBackend(Backend):
 
     def press(self, button: str) -> None:
         self.pressed.append(button)
-        log.info("PRESS %s", button)
+        log.debug("dry-run press %s", button)  # the engine already logs PRESS
         if self.delay:
             time.sleep(self.delay)

@@ -55,6 +55,9 @@ class Engine:
             self.recent.append(f"{msg.display}  {vote.value}")
             self.dirty = True
             changed = self.meter.vote(msg.user, vote, now)
+            anarchy, dem = self.meter.counts(now)
+            log.info("%s votes %s (democracy %d / anarchy %d, need %d votes to switch)",
+                     msg.display, vote.value, dem, anarchy, self.meter.min_votes)
             if changed:
                 self._on_mode_change(changed, now)
             return
@@ -65,6 +68,7 @@ class Engine:
                 return
             self.anarchy_queue.append(button)  # oldest dropped if full
             self.recent.append(f"{msg.display}  {button}")
+            log.info("%s: %s", msg.display, button)
         else:
             seq = parse_democracy(msg.text, self.allowed, self.cfg.democracy.max_presses)
             if seq is None:
@@ -73,6 +77,7 @@ class Engine:
                 self.round_ends_at = now + self.cfg.democracy.window_seconds
             self.tally.vote(msg.user, seq)
             self.recent.append(f"{msg.display}  {seq}")
+            log.info("%s votes %s", msg.display, seq)
         self.dirty = True
         self._notify()
 
@@ -151,6 +156,7 @@ class Engine:
                 self._wake.clear()
                 await self._wake.wait()
                 continue
+            log.info("PRESS %s", button)
             await asyncio.to_thread(backend.press, button)
 
     async def run(self, chat: AsyncIterable[ChatMessage], backend: Backend) -> None:

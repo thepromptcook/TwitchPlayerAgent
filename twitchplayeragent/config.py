@@ -58,6 +58,9 @@ class PyBoyConfig:
     autosave_minutes: float = 5.0
     window: str = "SDL2"  # "null" for headless
     scale: int = 4
+    # Let your own keyboard play the game when its window is focused. Off by
+    # default so stray keys (e.g. Ctrl+C) can't press buttons; only chat plays.
+    window_keyboard: bool = False
 
 
 @dataclass
