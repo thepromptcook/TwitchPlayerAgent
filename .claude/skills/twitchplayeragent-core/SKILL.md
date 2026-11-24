@@ -102,7 +102,10 @@ One `deque` of presses (`maxlen = [anarchy].max_queue`, oldest dropped):
   Jobs `(button, Event)` cross a `queue.Queue`; the loop does `button_press`, ticks `hold_frames`,
   `button_release`, ticks to `hold+release`, sets the event. `tick()` False means window closed → stop.
   `set_emulation_speed(1)`; `no_input=not window_keyboard` (else keys typed in the game window
-  play, and Ctrl+C's `c` cycles PyBoy's palette). Load `state_file` at start; save atomically
+  play, and Ctrl+C's `c` cycles PyBoy's palette). But `no_input` also skips PyBoy's window event
+  pump, so Windows marks the window "Not Responding" on a click and close / Ctrl+C (an SDL quit
+  event) go unseen: `_window_pump()` reads `sdl2.ext.get_events()` every frame, drops input, and
+  ends the loop on `SDL_QUIT`. Load `state_file` at start; save atomically
   (tmp + replace) every `autosave_minutes` and on exit.
   Watchdog: `faulthandler.dump_traceback_later(10)` re-armed every 60 ticks writes all stacks to
   `hang-report.txt` beside the save if the loop stalls (empty file = no freeze).

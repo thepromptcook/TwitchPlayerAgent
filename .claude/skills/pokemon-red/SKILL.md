@@ -67,7 +67,8 @@ state_file = "saves/pokemon_red.state"
 - The game window takes keyboard focus when it opens. With `--stdin`, click back on the
   terminal before typing. `window_keyboard = false` (default) means keys typed into the window
   do nothing; PyBoy's own hotkeys would otherwise act (its `c` key cycles the palette, so
-  Ctrl+C in the window recolours the game instead of quitting). Close the window to quit.
+  Ctrl+C in the window recolours the game instead of quitting). Close the window or press
+  Ctrl+C once in the terminal to save and quit; the bot reads the window events itself.
 - Progress lives in `saves/pokemon_red.state` (autosave every 5 min and on exit), and is resumed
   on start. Delete that file to start a new game. PyBoy also keeps the cartridge save (`.ram`).
 - Game window "Not Responding": check `saves/hang-report.txt` (empty = no freeze) for where it stuck.

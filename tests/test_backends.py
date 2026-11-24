@@ -69,3 +69,37 @@ def test_pyboy_loop_presses_frames_and_saves(tmp_path, monkeypatch):
     assert audio and set(audio) == {(48000, 1600)}  # every frame's samples
     assert (tmp_path / "saves" / "red.state").read_bytes() == b"state"  # saved on exit
     assert emu.stopped and stop.is_set()
+
+
+def test_window_events_are_read_and_quit_closes_cleanly(tmp_path, monkeypatch):
+    """With no_input, PyBoy stops reading window events, so the bot must: otherwise
+    Windows marks the window "Not Responding" and Ctrl+C / close are never seen."""
+    rom = tmp_path / "red.gb"
+    rom.write_bytes(b"rom")
+
+    class EndlessPyBoy(FakePyBoy):
+        def tick(self):
+            self.frame += 1
+            return self.frame < 10_000  # PyBoy itself never notices the close
+
+    pumps = []
+
+    def get_events():
+        pumps.append(1)
+        return [types.SimpleNamespace(type=256)] if len(pumps) == 30 else [types.SimpleNamespace(type=768)]
+
+    sdl2 = types.ModuleType("sdl2")
+    sdl2.SDL_QUIT = 256
+    sdl2.ext = types.SimpleNamespace(get_events=get_events)
+    monkeypatch.setitem(sys.modules, "sdl2", sdl2)
+    monkeypatch.setitem(sys.modules, "sdl2.ext", sdl2.ext)
+    emus = []
+    monkeypatch.setitem(sys.modules, "pyboy", types.SimpleNamespace(
+        PyBoy=lambda *a, **k: emus.append(EndlessPyBoy(*a, **k)) or emus[-1]))
+
+    cfg = PyBoyConfig(rom=str(rom), state_file=str(tmp_path / "red.state"))
+    stop = threading.Event()
+    PyBoyBackend(cfg).run_main_loop(stop)
+
+    assert len(pumps) == 30 and emus[0].frame == 30  # events read every frame; quit at frame 30
+    assert (tmp_path / "red.state").read_bytes() == b"state" and stop.is_set()  # saved, stopped

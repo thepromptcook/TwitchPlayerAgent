@@ -130,6 +130,10 @@ class PyBoyBackend(Backend):
 
         # no_input: PyBoy's own keyboard controls are off, so keys typed into the game
         # window (Ctrl+C, whose "c" cycles the palette) can't play; only chat does.
+        # But no_input also stops PyBoy reading the window's events at all, so Windows
+        # marks the window "Not Responding" on a click and the close button / Ctrl+C
+        # (SDL turns it into a quit event) are never seen. pump_window() below reads
+        # them instead: input is dropped, quit ends the loop.
         # When the overlay carries the sound, mute the window: PyBoy's volume only scales
         # what the window plays, not the samples it hands us.
         pyboy = PyBoy(str(rom), window=self.cfg.window, scale=self.cfg.scale,
@@ -141,7 +145,8 @@ class PyBoyBackend(Backend):
             with open(state, "rb") as fh:
                 pyboy.load_state(fh)
             log.info("Loaded emulator state from %s", state)
-        log.info("Game is running. Close the game window to save and quit.")
+        log.info("Game is running. Close the game window or press Ctrl+C to save and quit.")
+        pump_window = _window_pump() if not self.cfg.window_keyboard and self.cfg.window == "SDL2" else None
 
         # Freeze report: if the loop stops ticking for 10 s, Python writes every thread's
         # stack to hang-report.txt next to the save, showing where it got stuck.
@@ -158,7 +163,9 @@ class PyBoyBackend(Backend):
                 if job is None and not self._jobs.empty():
                     job, frame = self._jobs.get_nowait(), 0
                     pyboy.button_press(job[0])
-                if not pyboy.tick():  # False when the window is closed
+                if not pyboy.tick():  # False when PyBoy saw the window close
+                    break
+                if pump_window is not None and pump_window():  # we saw it close / Ctrl+C
                     break
                 ticks += 1
                 if ticks % 60 == 0:  # re-arm the watchdog every second
@@ -190,6 +197,21 @@ class PyBoyBackend(Backend):
                 self._jobs.get_nowait()[1].set()
             self._save(pyboy)
             pyboy.stop()
+
+
+def _window_pump():
+    """A function that reads the SDL window's pending events, drops them, and returns
+    True on a quit event (close button or Ctrl+C). None if SDL isn't importable."""
+    try:
+        import sdl2  # PySDL2, installed with PyBoy
+        import sdl2.ext
+    except ImportError:
+        return None
+
+    def pump() -> bool:
+        return any(e.type == sdl2.SDL_QUIT for e in sdl2.ext.get_events())
+
+    return pump
 
 
 def make_backend(cfg: Config) -> Backend:
