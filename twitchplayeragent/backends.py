@@ -10,6 +10,7 @@ calls it from a worker thread, one press at a time.
 
 from __future__ import annotations
 
+import faulthandler
 import logging
 import queue
 import threading
@@ -142,6 +143,10 @@ class PyBoyBackend(Backend):
             log.info("Loaded emulator state from %s", state)
         log.info("Game is running. Close the game window to save and quit.")
 
+        # Freeze report: if the loop stops ticking for 10 s, Python writes every thread's
+        # stack to hang-report.txt next to the save, showing where it got stuck.
+        state.parent.mkdir(parents=True, exist_ok=True)
+        hang_report = open(state.parent / "hang-report.txt", "w")
         self._running.set()
         autosave = self.cfg.autosave_minutes * 60
         last_save = time.monotonic()
@@ -156,6 +161,8 @@ class PyBoyBackend(Backend):
                 if not pyboy.tick():  # False when the window is closed
                     break
                 ticks += 1
+                if ticks % 60 == 0:  # re-arm the watchdog every second
+                    faulthandler.dump_traceback_later(10, file=hang_report)
                 if self.on_frame is not None and ticks % 2 == 0:  # 30 fps to the overlay
                     screen = pyboy.screen.ndarray  # live (144, 160, 4) RGBA view; tobytes copies
                     self.on_frame(screen.shape[1], screen.shape[0], screen.tobytes())
@@ -173,6 +180,8 @@ class PyBoyBackend(Backend):
                     self._save(pyboy)
                     last_save = time.monotonic()
         finally:
+            faulthandler.cancel_dump_traceback_later()
+            hang_report.close()
             self._running.clear()
             stop.set()
             if job is not None:

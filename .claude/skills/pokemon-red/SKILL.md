@@ -70,6 +70,7 @@ state_file = "saves/pokemon_red.state"
   Ctrl+C in the window recolours the game instead of quitting). Close the window to quit.
 - Progress lives in `saves/pokemon_red.state` (autosave every 5 min and on exit), and is resumed
   on start. Delete that file to start a new game. PyBoy also keeps the cartridge save (`.ram`).
+- Game window "Not Responding": check `saves/hang-report.txt` (empty = no freeze) for where it stuck.
 - `[backend].type = "keyboard"` drives an external emulator instead (mGBA recommended). Match
   `[backend.keyboard.keys]` to its bindings (default A=x, B=z, Start=enter) and keep it focused.
 

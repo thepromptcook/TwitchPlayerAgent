@@ -5,6 +5,9 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import logging.handlers
+import queue
+import sys
 import threading
 
 from .backends import make_backend
@@ -17,6 +20,38 @@ from .overlay import Overlay
 log = logging.getLogger("twitchplayeragent")
 
 
+def setup_logging(verbose: bool) -> logging.handlers.QueueListener:
+    """Log calls only queue the line; a background thread prints it. A terminal that
+    stops accepting output (see below) then can't freeze the game loop."""
+    console = logging.StreamHandler()
+    console.setFormatter(logging.Formatter("%(asctime)s %(levelname)-7s %(name)s: %(message)s"))
+    lines: queue.SimpleQueue = queue.SimpleQueue()
+    logging.basicConfig(level=logging.DEBUG if verbose else logging.INFO,
+                        handlers=[logging.handlers.QueueHandler(lines)])
+    listener = logging.handlers.QueueListener(lines, console)
+    listener.start()
+    return listener
+
+
+def disable_quick_edit() -> None:
+    """Windows: clicking in a terminal with QuickEdit on starts a text selection that
+    pauses every program printing to it until a key is pressed, which froze the
+    game window ("Not Responding"). Turn QuickEdit off for this terminal."""
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+
+        kernel32 = ctypes.windll.kernel32
+        handle = kernel32.GetStdHandle(-10)  # STD_INPUT_HANDLE
+        mode = ctypes.c_uint32()
+        if kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
+            ENABLE_QUICK_EDIT_MODE, ENABLE_EXTENDED_FLAGS = 0x0040, 0x0080
+            kernel32.SetConsoleMode(handle, (mode.value & ~ENABLE_QUICK_EDIT_MODE) | ENABLE_EXTENDED_FLAGS)
+    except Exception:  # not a console (e.g. redirected output): nothing to do
+        pass
+
+
 def main(argv: list[str] | None = None) -> None:
     p = argparse.ArgumentParser(prog="twitchplayeragent", description=__doc__)
     p.add_argument("-c", "--config", help="path to a TOML config (see config.example.toml)")
@@ -27,10 +62,8 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("-v", "--verbose", action="store_true")
     args = p.parse_args(argv)
 
-    logging.basicConfig(
-        level=logging.DEBUG if args.verbose else logging.INFO,
-        format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
-    )
+    listener = setup_logging(args.verbose)
+    disable_quick_edit()
 
     cfg = load_config(args.config)
     if args.dry_run:
@@ -82,6 +115,7 @@ def main(argv: list[str] | None = None) -> None:
         backend.stop()
         if overlay is not None:
             overlay.stop()
+        listener.stop()  # flush remaining log lines
 
 
 if __name__ == "__main__":

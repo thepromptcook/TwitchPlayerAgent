@@ -104,9 +104,16 @@ One `deque` of presses (`maxlen = [anarchy].max_queue`, oldest dropped):
   `set_emulation_speed(1)`; `no_input=not window_keyboard` (else keys typed in the game window
   play, and Ctrl+C's `c` cycles PyBoy's palette). Load `state_file` at start; save atomically
   (tmp + replace) every `autosave_minutes` and on exit.
+  Watchdog: `faulthandler.dump_traceback_later(10)` re-armed every 60 ticks writes all stacks to
+  `hang-report.txt` beside the save if the loop stalls (empty file = no freeze).
 - `KeyboardBackend`: keys into a focused external emulator; `pydirectinput` (Windows), else `pynput`.
 - `LogBackend`: records `pressed` for tests; `--dry-run` selects it.
 - `tests/test_backends.py` drives `run_main_loop` with a fake `pyboy` module (timing, frames, save).
+
+## CLI (`__main__.py`)
+Logging goes through `QueueHandler` → `QueueListener`, so a log call never blocks on the terminal.
+Windows: `disable_quick_edit()` clears ENABLE_QUICK_EDIT_MODE; a click in a QuickEdit console pauses
+every write to it, which froze the PyBoy window ("Not Responding") while chat kept arriving.
 
 ## Overlay (`overlay.py`)
 One OBS **Browser Source** (`http://localhost:<port>`, 1920×1080) replaces window capture and
