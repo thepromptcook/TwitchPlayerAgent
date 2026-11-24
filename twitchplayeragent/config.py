@@ -53,11 +53,13 @@ class MeterConfig:
 
 
 @dataclass
-class ClaudeConfig:
-    # true: Claude reads all chat and picks the presses, instead of anarchy/democracy.
+class AIConfig:
+    # true: an AI reads all chat and picks the presses, instead of anarchy/democracy.
     enabled: bool = False
-    model: str = "claude-haiku-5-5"
-    effort: str = "low"
+    provider: str = "claude"  # "claude" (Anthropic API) or "ollama" (local model)
+    model: str = ""  # empty = claude-haiku-5-5 for claude, qwen3.5:27b for ollama
+    effort: str = "low"  # claude only
+    ollama_url: str = "http://localhost:11434"
     window_seconds: float = 10.0  # chat per decision
     max_presses: int = 9  # per decision
 
@@ -111,7 +113,7 @@ class Config:
     anarchy: AnarchyConfig = field(default_factory=AnarchyConfig)
     democracy: DemocracyConfig = field(default_factory=DemocracyConfig)
     meter: MeterConfig = field(default_factory=MeterConfig)
-    claude: ClaudeConfig = field(default_factory=ClaudeConfig)
+    ai: AIConfig = field(default_factory=AIConfig)
     backend: BackendConfig = field(default_factory=BackendConfig)
     overlay: OverlayConfig = field(default_factory=OverlayConfig)
 
@@ -129,8 +131,10 @@ class Config:
             raise ValueError("[backend].type must be 'pyboy', 'keyboard', or 'log'")
         if not 0 < self.meter.to_democracy <= 1 or not 0 < self.meter.to_anarchy <= 1:
             raise ValueError("[meter] thresholds must be between 0 and 1")
-        if self.claude.window_seconds <= 0 or self.claude.max_presses < 1:
-            raise ValueError("[claude] window_seconds and max_presses must be positive")
+        if self.ai.provider not in ("claude", "ollama"):
+            raise ValueError("[ai].provider must be 'claude' or 'ollama'")
+        if self.ai.window_seconds <= 0 or self.ai.max_presses < 1:
+            raise ValueError("[ai] window_seconds and max_presses must be positive")
 
 
 def _build(cls: type, data: dict[str, Any]) -> Any:
@@ -158,6 +162,11 @@ def load_config(path: str | Path | None) -> Config:
             data = tomllib.loads(text)
         except tomllib.TOMLDecodeError as exc:
             raise SystemExit(_explain_toml_error(path, text, exc)) from None
+        if "claude" in data:
+            raise SystemExit(
+                f"Config error in {path}: the [claude] section is now [ai]. Rename it to [ai] "
+                'and add provider = "claude" (or "ollama" for a local model).'
+            )
         try:
             cfg = _build(Config, data)
         except (TypeError, ValueError) as exc:

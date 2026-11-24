@@ -12,7 +12,7 @@ from .commands import ModeVote, Sequence
 class Mode(Enum):
     ANARCHY = "anarchy"
     DEMOCRACY = "democracy"
-    CLAUDE = "claude"  # set by [claude].enabled, never by the meter
+    AI = "ai"  # set by [ai].enabled, never by the meter
 
 
 @dataclass

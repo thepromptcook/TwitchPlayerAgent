@@ -43,8 +43,8 @@ class Overlay:
               votes: list[tuple[str, int]], total_votes: int, seconds_left: float | None,
               summary: str = "") -> None:
         self._write("inputs.txt", "\n".join(inputs) + ("\n" if inputs else ""))
-        if mode == "claude":  # no meter in Claude mode: show what Claude is doing
-            self._write("mode.txt", f"CLAUDE\n{summary}\n")
+        if mode == "ai":  # no meter in AI mode: show what the AI is doing
+            self._write("mode.txt", f"AI\n{summary}\n")
         else:
             self._write("mode.txt", f"{mode.upper()}\n{render_bar(share, threshold)}\n")
         if mode == "democracy":

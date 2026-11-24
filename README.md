@@ -49,24 +49,34 @@ Switching mode clears any queued inputs. When nobody is voting, the meter
 drifts back to anarchy. `min_votes` (default 5) stops one or two viewers
 flipping the mode on a quiet stream.
 
-### Claude mode (optional)
-With `[claude] enabled = true`, Claude plays instead of anarchy and democracy.
+### AI mode (optional)
+With `[ai] enabled = true`, an AI plays instead of anarchy and democracy.
 Every 10 seconds (`window_seconds`), it reads all of that window's chat. Chat
 can be commands like `up2left` or plain English like "go heal at the Pokémon
-Center". Claude then picks up to 9 presses (`max_presses`).
+Center". The AI then picks up to 9 presses (`max_presses`).
 
 - It can only press the game's allowed buttons.
 - Each new decision replaces any presses still waiting from the last one.
 - A window with no chat leaves the game alone.
-- The overlay's `mode.txt` shows what Claude is doing.
+- The overlay's `mode.txt` shows what the AI is doing.
 
+Choose the AI with `provider`:
+
+**`provider = "claude"`** uses Anthropic's API. It makes the best decisions.
 ```bash
 pip install -e ".[claude]"
 set ANTHROPIC_API_KEY=sk-ant-...    # Mac/Linux: export ANTHROPIC_API_KEY=sk-ant-...
 ```
-
 API usage is billed separately from a claude.ai subscription. The default
-model, `claude-haiku-5-5`, is the cheapest. Set `model` to use a stronger one.
+model is `claude-haiku-5-5`, the cheapest; set `model` to use a stronger one.
+
+**`provider = "ollama"`** uses a local model, which is free and runs on your
+own GPU. Install [Ollama](https://ollama.com), then:
+```bash
+ollama pull qwen3.5:27b    # 17 GB; fits a 24 GB card such as an RTX 4090
+```
+Smaller cards can set `model = "qwen3:8b"`. No extra Python packages are
+needed. Ollama holds the answer to the allowed buttons while generating it.
 
 ## Setup
 

@@ -42,20 +42,20 @@ class Engine:
         self.overlay = overlay
         self.dirty = True
         self._wake: asyncio.Event | None = None
-        # Claude mode: Claude picks the presses and the anarchy/democracy meter is off.
-        self.planner = Planner(cfg) if cfg.claude.enabled else None
-        self.claude_queue: deque[str] = deque()
-        self.claude_summary = ""
+        # AI mode: the AI picks the presses and the anarchy/democracy meter is off.
+        self.planner = Planner(cfg) if cfg.ai.enabled else None
+        self.ai_queue: deque[str] = deque()
+        self.ai_summary = ""
 
     @property
     def mode(self) -> Mode:
-        return Mode.CLAUDE if self.planner else self.meter.mode
+        return Mode.AI if self.planner else self.meter.mode
 
     # ---- decision logic -------------------------------------------------
 
     def handle(self, msg: ChatMessage, now: float) -> None:
         """Process one chat message."""
-        if self.planner is not None:  # Claude mode: all chat goes to Claude
+        if self.planner is not None:  # AI mode: all chat goes to the AI
             self.planner.add(msg)
             return
 
@@ -110,14 +110,14 @@ class Engine:
     def next_press(self) -> str | None:
         """The next button to send to the game, if any."""
         q = {Mode.ANARCHY: self.anarchy_queue, Mode.DEMOCRACY: self.democracy_queue,
-             Mode.CLAUDE: self.claude_queue}[self.mode]
+             Mode.AI: self.ai_queue}[self.mode]
         return q.popleft() if q else None
 
-    def apply_claude(self, summary: str, presses: list[str]) -> None:
-        """A Claude decision replaces any presses still queued from the last one."""
-        self.claude_queue.clear()
-        self.claude_queue.extend(presses)
-        self.claude_summary = summary
+    def apply_ai(self, summary: str, presses: list[str]) -> None:
+        """An AI decision replaces any presses still queued from the last one."""
+        self.ai_queue.clear()
+        self.ai_queue.extend(presses)
+        self.ai_summary = summary
         self.recent.append(f">> {' '.join(presses) or 'wait'}")
         self.dirty = True
         self._notify()
@@ -149,12 +149,12 @@ class Engine:
             votes=self.tally.results(),
             total_votes=self.tally.total,
             seconds_left=None if self.round_ends_at is None else self.round_ends_at - now,
-            summary=self.claude_summary,
+            summary=self.ai_summary,
         )
 
-    async def _claude_loop(self) -> None:
+    async def _ai_loop(self) -> None:
         assert self.planner is not None
-        window = self.cfg.claude.window_seconds
+        window = self.cfg.ai.window_seconds
         loop = asyncio.get_running_loop()
         deadline = loop.time()
         while True:
@@ -163,7 +163,7 @@ class Engine:
             await asyncio.sleep(deadline - loop.time())
             decision = await self.planner.decide()
             if decision is not None:
-                self.apply_claude(*decision)
+                self.apply_ai(*decision)
 
     async def _read_chat(self, chat: AsyncIterable[ChatMessage]) -> None:
         async for msg in chat:
@@ -171,7 +171,7 @@ class Engine:
         # Chat ended (e.g. end of piped stdin): let queued inputs and any open
         # democracy round finish before shutting down.
         while (self.anarchy_queue or self.democracy_queue or self.round_ends_at is not None
-               or self.claude_queue or (self.planner is not None and self.planner.buffer)):
+               or self.ai_queue or (self.planner is not None and self.planner.buffer)):
             await asyncio.sleep(0.1)
         await asyncio.sleep(0.5)
 
@@ -203,7 +203,7 @@ class Engine:
             asyncio.create_task(self._press_worker(backend), name="presses"),
         ]
         if self.planner is not None:
-            tasks.append(asyncio.create_task(self._claude_loop(), name="claude"))
+            tasks.append(asyncio.create_task(self._ai_loop(), name="ai"))
         try:
             done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
             for t in done:

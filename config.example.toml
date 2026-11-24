@@ -28,12 +28,16 @@ vote_lifetime = 60      # seconds a mode vote keeps counting
 min_votes = 5           # don't switch on fewer live votes than this
 start_mode = "anarchy"
 
-[claude]
-# true: Claude reads all chat (commands and plain English) and picks the presses,
-# instead of anarchy/democracy. Needs: pip install -e ".[claude]" and ANTHROPIC_API_KEY.
+[ai]
+# true: an AI reads all chat (commands and plain English) and picks the presses,
+# instead of anarchy/democracy.
 enabled = false
-model = "claude-haiku-5-5"
-effort = "low"
+# "claude": Anthropic API. Needs pip install -e ".[claude]" and ANTHROPIC_API_KEY.
+# "ollama": a free local model. Needs Ollama running and: ollama pull qwen3.5:27b
+provider = "claude"
+model = ""              # empty = claude-haiku-5-5 (claude) or qwen3.5:27b (ollama)
+effort = "low"          # claude only
+ollama_url = "http://localhost:11434"
 window_seconds = 10     # chat per decision
 max_presses = 9         # presses per decision
 

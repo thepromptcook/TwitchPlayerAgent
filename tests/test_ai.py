@@ -30,11 +30,11 @@ def msg(user, text):
     return ChatMessage(user, user, text)
 
 
-def claude_cfg(**kw):
+def ai_cfg(**kw):
     cfg = Config()
-    cfg.claude.enabled = True
+    cfg.ai.enabled = True
     for k, v in kw.items():
-        setattr(cfg.claude, k, v)
+        setattr(cfg.ai, k, v)
     return cfg
 
 
@@ -51,7 +51,7 @@ def test_format_chat_collapses_repeats():
 
 
 def test_planner_filters_and_caps_presses():
-    cfg = claude_cfg(max_presses=3)
+    cfg = ai_cfg(max_presses=3)
     client = FakeClient({"summary": "walk up", "presses": ["up", "select", "up", "up", "up"]})
     p = Planner(cfg, client)
     p.add(msg("ash", "go up"))
@@ -64,7 +64,7 @@ def test_planner_filters_and_caps_presses():
 
 
 def test_planner_skips_quiet_windows_and_survives_errors():
-    p = Planner(claude_cfg(), FakeClient(RuntimeError("network down")))
+    p = Planner(ai_cfg(), FakeClient(RuntimeError("network down")))
     assert asyncio.run(p.decide()) is None  # no chat: no call
     p.add(msg("ash", "a"))
     assert asyncio.run(p.decide()) is None  # error is logged, not raised
@@ -74,7 +74,7 @@ def test_planner_skips_quiet_windows_and_survives_errors():
 def test_previous_summary_is_passed_on():
     client = FakeClient({"summary": "heading to the gym", "presses": ["up"]},
                         {"summary": "still going", "presses": []})
-    p = Planner(claude_cfg(), client)
+    p = Planner(ai_cfg(), client)
     p.add(msg("a", "gym"))
     asyncio.run(p.decide())
     p.add(msg("b", "keep going"))
@@ -82,20 +82,20 @@ def test_previous_summary_is_passed_on():
     assert "heading to the gym" in client.calls[1]["messages"][0]["content"]
 
 
-def test_engine_in_claude_mode():
-    e = Engine(claude_cfg())
-    assert e.mode is Mode.CLAUDE
-    e.handle(msg("v", "democracy"), 0)  # mode votes go to Claude like any chat
+def test_engine_in_ai_mode():
+    e = Engine(ai_cfg())
+    assert e.mode is Mode.AI
+    e.handle(msg("v", "democracy"), 0)  # mode votes go to the AI like any chat
     e.handle(msg("v", "up"), 0)
     assert e.next_press() is None  # nothing pressed until Claude decides
     assert [m.text for m in e.planner.buffer] == ["democracy", "up"]
-    e.apply_claude("go up", ["up", "up"])
-    e.apply_claude("actually left", ["left"])  # a new decision replaces the old one
+    e.apply_ai("go up", ["up", "up"])
+    e.apply_ai("actually left", ["left"])  # a new decision replaces the old one
     assert [e.next_press(), e.next_press()] == ["left", None]
 
 
 def test_run_end_to_end():
-    cfg = claude_cfg(window_seconds=0.1)
+    cfg = ai_cfg(window_seconds=0.1)
     e = Engine(cfg)
     e.planner.client = FakeClient({"summary": "open the menu", "presses": ["start", "a"]})
 
@@ -105,3 +105,76 @@ def test_run_end_to_end():
     backend = LogBackend(delay=0)
     asyncio.run(asyncio.wait_for(e.run(chat(), backend), timeout=5))
     assert backend.pressed == ["start", "a"]
+
+
+# ---- Ollama (local) ---------------------------------------------------------------
+
+import json
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
+
+import pytest
+
+from twitchplayeragent.llm import unavailable
+
+
+@pytest.fixture
+def fake_ollama():
+    """A tiny stand-in for Ollama's HTTP API on a random localhost port."""
+    state = {"models": ["qwen3.5:27b"], "reply": {"summary": "go up", "presses": ["up", "up"]},
+             "requests": []}
+
+    class Handler(BaseHTTPRequestHandler):
+        def _send(self, body):
+            data = json.dumps(body).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def do_GET(self):  # /api/tags
+            self._send({"models": [{"name": n} for n in state["models"]]})
+
+        def do_POST(self):  # /api/chat
+            body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            state["requests"].append(body)
+            self._send({"message": {"role": "assistant", "content": json.dumps(state["reply"])}})
+
+        def log_message(self, *args):
+            pass
+
+    server = HTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    state["url"] = f"http://127.0.0.1:{server.server_port}"
+    yield state
+    server.shutdown()
+
+
+def test_ollama_decides_with_schema(fake_ollama):
+    cfg = ai_cfg(provider="ollama", ollama_url=fake_ollama["url"])
+    p = Planner(cfg)
+    p.add(msg("ash", "walk up a bit"))
+    assert asyncio.run(p.decide()) == ("go up", ["up", "up"])
+    sent = fake_ollama["requests"][0]
+    assert sent["model"] == "qwen3.5:27b"
+    assert sent["format"]["properties"]["presses"]["items"]["enum"] == sorted(cfg.allowed_buttons)
+    assert sent["think"] is False and sent["stream"] is False
+    assert "walk up a bit" in sent["messages"][1]["content"]
+    assert "JSON" in sent["messages"][0]["content"]
+
+
+def test_ollama_bad_answer_is_skipped(fake_ollama):
+    fake_ollama["reply"] = "not an object"
+    p = Planner(ai_cfg(provider="ollama", ollama_url=fake_ollama["url"]))
+    p.add(msg("ash", "up"))
+    assert asyncio.run(p.decide()) is None
+
+
+def test_ollama_startup_checks(fake_ollama):
+    cfg = ai_cfg(provider="ollama", ollama_url=fake_ollama["url"])
+    assert unavailable(cfg) == ""
+    cfg.ai.model = "llama9:70b"
+    assert "ollama pull llama9:70b" in unavailable(cfg)
+    cfg.ai.ollama_url = "http://127.0.0.1:9"  # nothing listening
+    assert "isn't reachable" in unavailable(cfg)
