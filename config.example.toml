@@ -1,0 +1,60 @@
+# Copy to config.toml and edit. Every key is optional; defaults are shown.
+
+[twitch]
+channel = "your_channel_name"
+# Leave empty to read chat anonymously (read-only is all the bot needs).
+nick = ""
+oauth_token = ""
+
+[game]
+name = "Pokemon Red"
+# Add "select" to re-enable it. The original run disabled it after it was used to soft-reset.
+buttons = ["a", "b", "up", "down", "left", "right", "start"]
+
+[anarchy]
+# Inputs waiting to run; when full, the oldest are dropped so lag stays bounded.
+max_queue = 100
+
+[democracy]
+# Seconds per voting round (the round opens on its first vote).
+window_seconds = 20
+# Max total presses in one compound input, e.g. "start9".
+max_presses = 9
+
+[meter]
+to_democracy = 0.80     # share of live votes needed to switch anarchy -> democracy
+to_anarchy = 0.50       # share needed to switch back democracy -> anarchy
+vote_lifetime = 60      # seconds a mode vote keeps counting
+min_votes = 5           # don't switch on fewer live votes than this
+start_mode = "anarchy"
+
+[backend]
+type = "pyboy"          # "pyboy" (built-in emulator), "keyboard" (external emulator), or "log"
+hold_frames = 2         # PyBoy only: frames a button is held (60 frames = 1 second)
+release_frames = 2      # PyBoy only: frames between presses
+
+[backend.pyboy]
+rom = "roms/pokemon_red.gb"           # your own legally obtained ROM
+state_file = "saves/pokemon_red.state"
+autosave_minutes = 5
+window = "SDL2"                       # "null" runs headless
+scale = 4
+
+[backend.keyboard]
+hold_ms = 50
+gap_ms = 50
+
+[backend.keyboard.keys]   # match your emulator's key bindings
+a = "x"
+b = "z"
+start = "enter"
+select = "backspace"
+up = "up"
+down = "down"
+left = "left"
+right = "right"
+
+[overlay]
+enabled = true
+dir = "overlay"
+max_lines = 20
