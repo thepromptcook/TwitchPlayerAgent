@@ -69,6 +69,8 @@ left = "left"
 right = "right"
 
 [overlay]
+# One OBS Browser Source: http://localhost:8080 at 1920x1080. Shows the game, the input list,
+# the anarchy/democracy meter and votes, and keeps working when the game window is minimized.
 enabled = true
-dir = "overlay"
+port = 8080
 max_lines = 20

@@ -44,7 +44,6 @@ class Engine:
         self.ai_summary = ""
         self.recent: deque[str] = deque(maxlen=cfg.overlay.max_lines)
         self.overlay = overlay
-        self.dirty = True
         self._wake: asyncio.Event | None = None
 
     @property
@@ -130,23 +129,20 @@ class Engine:
 
     def _show(self, line: str) -> None:
         self.recent.append(line)
-        self.dirty = True
 
     def _wake_presser(self) -> None:
         if self._wake is not None:
             self._wake.set()
 
-    def render_overlay(self, now: float) -> None:
-        if self.overlay is None or not self.dirty:
-            return
-        self.dirty = False
-        self.overlay.write(
-            inputs=list(self.recent), mode=self.mode.value,
-            share=self.meter.democracy_share(now), threshold=self.meter.threshold_for_switch(),
-            votes=self.tally.results(), total_votes=self.tally.total,
-            seconds_left=None if self.round_ends_at is None else self.round_ends_at - now,
-            summary=self.ai_summary,
-        )
+    def overlay_state(self, now: float) -> dict:
+        """Everything the overlay page shows, as JSON-ready data."""
+        return {
+            "mode": self.mode.value, "inputs": list(self.recent),
+            "share": self.meter.democracy_share(now), "threshold": self.meter.threshold_for_switch(),
+            "votes": self.tally.results(), "total_votes": self.tally.total,
+            "seconds_left": None if self.round_ends_at is None else max(0.0, self.round_ends_at - now),
+            "summary": self.ai_summary,
+        }
 
     # ---- async wiring ---------------------------------------------------
 
@@ -162,9 +158,8 @@ class Engine:
         while True:
             now = time.monotonic()
             self.tick(now)
-            if self.round_ends_at is not None:
-                self.dirty = True  # keep the countdown moving
-            self.render_overlay(now)
+            if self.overlay is not None:
+                self.overlay.update(self.overlay_state(now))
             await asyncio.sleep(0.25)
 
     async def _ai_loop(self) -> None:

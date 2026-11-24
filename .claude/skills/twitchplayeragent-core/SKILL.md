@@ -26,7 +26,7 @@ Python ≥ 3.11, standard library only in the core; optional extras: `pyboy`,
 | `llm.py` | AI mode: `Planner`, `build_system`, `answer_schema`, `build_tool`, `format_chat`, `unavailable` |
 | `chat.py` | `ChatMessage`, `parse_irc_line`, `TwitchIrcChat`, `StdinChat` |
 | `backends.py` | `Backend`, `PyBoyBackend`, `KeyboardBackend`, `LogBackend`, `make_backend` |
-| `overlay.py` | `Overlay`, `render_bar` (OBS text files) |
+| `overlay.py` | `Overlay` (local web page for one OBS Browser Source), `PAGE` |
 | `config.py` | dataclass config loaded from TOML, `load_config` |
 | `__main__.py` | CLI and thread wiring |
 
@@ -59,7 +59,7 @@ One `deque` of presses (`maxlen = [anarchy].max_queue`, oldest dropped):
 - AI mode (`[ai].enabled`): every message goes to the `Planner`; `apply_ai` *replaces* the
   queue with each decision; the meter is off and mode votes are just chat.
 - A mode switch clears the queue, tally and round.
-- `recent` holds overlay lines (`user  input`, `>> winner`, `*** MODE ***`); `dirty` throttles writes.
+- `recent` holds overlay lines (`user  input`, `>> winner`, `*** MODE ***`); `overlay_state(now)` is the JSON for the page.
 - `run(chat, backend)` tasks: chat reader, 0.25 s clock (tick + overlay), press worker
   (`asyncio.to_thread(backend.press)`, woken by an `asyncio.Event`), and in AI mode a fixed-cadence
   AI loop. When chat ends (replayed file) it waits while `busy`, then returns.
@@ -106,11 +106,20 @@ One `deque` of presses (`maxlen = [anarchy].max_queue`, oldest dropped):
   (tmp + replace) every `autosave_minutes` and on exit.
 - `KeyboardBackend`: keys into a focused external emulator; `pydirectinput` (Windows), else `pynput`.
 - `LogBackend`: records `pressed` for tests; `--dry-run` selects it.
+- `tests/test_backends.py` drives `run_main_loop` with a fake `pyboy` module (timing, frames, save).
 
 ## Overlay (`overlay.py`)
-Atomic writes (tmp + `os.replace`) to `[overlay].dir` for OBS Text "Read from file":
-`inputs.txt` (recent lines), `mode.txt` (mode + `ANARCHY [###---|--] DEMOCRACY`, or `AI` + summary),
-`democracy.txt` (countdown and top-5 votes with %; empty otherwise).
+One OBS **Browser Source** (`http://localhost:<port>`, 1920×1080) replaces window capture and
+text sources. `ThreadingHTTPServer` on 127.0.0.1 in a daemon thread; port in use → SystemExit naming
+`[overlay].port`; port 0 picks a free one (tests). Routes: `/` the inline `PAGE`; `/state` the
+engine's `overlay_state` (pushed by the clock every 0.25 s); `/frame` raw RGBA + `X-Width`/`X-Height`
+headers, 204 if none; `/favicon.ico` 204. The backend's `on_frame(w, h, rgba)` hook
+(`Overlay.set_frame`) gets every 2nd PyBoy frame from `pyboy.screen.ndarray` (a live (144,160,4)
+view; `tobytes()` copies), so the game shows even when its window is minimized.
+Page: canvas 1200×1080 (`image-rendering: pixelated`, 10:9) left, transparent when no frames;
+panel 720 px right: mode name, red/blue meter with a marker at `threshold`, democracy countdown
+and top 5, or AI summary; input list bottom-aligned. Poll `/state` every 250 ms and `/frame` at
+~30 fps. Insert chat with `textContent` only. Check layout with headless Chrome screenshots.
 
 ## Config (`config.py`, TOML)
 | Section | Fields (default) |
@@ -124,10 +133,10 @@ Atomic writes (tmp + `os.replace`) to `[overlay].dir` for OBS Text "Read from fi
 | `[backend]` | type ("pyboy" / "keyboard" / "log"), hold_frames (2), release_frames (2) |
 | `[backend.pyboy]` | rom, state_file, autosave_minutes (5), window ("SDL2"), scale (4), window_keyboard (false) |
 | `[backend.keyboard]` | keys (button→key), hold_ms (50), gap_ms (50) |
-| `[overlay]` | enabled (true), dir ("overlay"), max_lines (20) |
+| `[overlay]` | enabled (true), port (8080), max_lines (20) |
 Nested dataclasses built recursively; `validate()` checks enums and ranges. TOML syntax errors
 show the offending line with hints for unquoted text and curly quotes. Gitignore `roms/`,
-`saves/`, `*.gb`, `*.state`, `config.toml`, `overlay/`.
+`saves/`, `*.gb`, `*.state`, `config.toml`.
 
 ## Build order
 1. `commands.py` + tests → 2. `modes.py` + tests → 3. `config.py` → 4. `engine.py` (sync logic,

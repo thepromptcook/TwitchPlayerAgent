@@ -106,8 +106,9 @@ class BackendConfig:
 
 @dataclass
 class OverlayConfig:
+    # A local web page for one OBS Browser Source: http://localhost:<port>/
     enabled: bool = True
-    dir: str = "overlay"
+    port: int = 8080
     max_lines: int = 20
 
 

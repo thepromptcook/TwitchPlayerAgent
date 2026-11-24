@@ -24,6 +24,9 @@ log = logging.getLogger(__name__)
 class Backend:
     #: True if the backend must own the main thread (an SDL window, required on macOS).
     needs_main_thread = False
+    #: Set by __main__ to Overlay.set_frame(width, height, rgba) if the backend has the
+    #: game's pixels (PyBoy), so the overlay can show the game without window capture.
+    on_frame = None
 
     def start(self) -> None:
         """Called once before any press."""
@@ -139,6 +142,7 @@ class PyBoyBackend(Backend):
         last_save = time.monotonic()
         job: tuple[str, threading.Event] | None = None
         frame = 0  # frames since the current job's button went down
+        ticks = 0
         try:
             while not stop.is_set():
                 if job is None and not self._jobs.empty():
@@ -146,6 +150,10 @@ class PyBoyBackend(Backend):
                     pyboy.button_press(job[0])
                 if not pyboy.tick():  # False when the window is closed
                     break
+                ticks += 1
+                if self.on_frame is not None and ticks % 2 == 0:  # 30 fps to the overlay
+                    screen = pyboy.screen.ndarray  # live (144, 160, 4) RGBA view; tobytes copies
+                    self.on_frame(screen.shape[1], screen.shape[0], screen.tobytes())
                 if job is not None:
                     frame += 1
                     if frame == self.hold:

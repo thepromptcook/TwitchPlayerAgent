@@ -58,7 +58,7 @@ Center". The AI then picks up to 9 presses (`max_presses`).
 - It can only press the game's allowed buttons.
 - Each new decision replaces any presses still waiting from the last one.
 - A window with no chat leaves the game alone.
-- The overlay's `mode.txt` shows what the AI is doing.
+- The overlay shows what the AI is doing in place of the meter.
 
 Choose the AI with `provider`:
 
@@ -108,13 +108,23 @@ ash: up
 misty: democracy
 ```
 
-### Stream overlay (OBS)
-The bot writes these files to `overlay/`. Add each one as a **Text** source
-with **Read from file** turned on:
+### Streaming with OBS
+While the bot runs, it serves the whole stream layout at **http://localhost:8080**:
+the game on the left, and on the right the input list, the anarchy/democracy
+meter, the democracy votes and countdown, or the AI's summary.
 
-- `inputs.txt`: scrolling list of `user  input`
-- `mode.txt`: current mode and the bar (`#` is the democracy share, `|` marks the line the other mode needs to reach)
-- `democracy.txt`: live vote counts and countdown (empty during anarchy)
+1. Start the bot.
+2. In OBS, add **Sources → + → Browser**, set URL `http://localhost:8080`,
+   width **1920** and height **1080**, and remove the default custom CSS.
+3. That's the whole scene. The game image comes straight from the emulator, so
+   you can **minimize the game window**. Window Capture isn't needed, and
+   neither are its laptop black-screen fixes.
+
+Open the same address in any browser to preview it. Game sound still plays
+from the bot; capture it with **Desktop Audio** or **Application Audio Capture**
+(the `python` process). With the `keyboard` backend there's no built-in game
+image: the left side stays transparent, so put a Window Capture of your
+emulator underneath. If port 8080 is taken, set `[overlay].port`.
 
 ## Chat connection
 Chat is read anonymously over Twitch IRC (TLS, port 6697), so no login is
@@ -136,7 +146,7 @@ python -m twitchplayeragent --stdin --dry-run < examples/chat.txt   # offline re
 | `llm.py` | AI mode (Claude or Ollama) |
 | `chat.py` | Twitch IRC and terminal chat sources |
 | `backends.py` | PyBoy, keyboard and dry-run input |
-| `overlay.py` | OBS text files |
+| `overlay.py` | local web page for one OBS Browser Source |
 | `config.py` / `__main__.py` | TOML config and command line |
 
 Claude skills in `.claude/skills/` describe how to rebuild the project:

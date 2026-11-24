@@ -6,7 +6,6 @@ from twitchplayeragent.chat import ChatMessage, parse_irc_line
 from twitchplayeragent.config import Config
 from twitchplayeragent.engine import Engine
 from twitchplayeragent.modes import Mode
-from twitchplayeragent.overlay import Overlay, render_bar
 
 
 def make(**meter):
@@ -68,15 +67,6 @@ def test_parse_irc_privmsg():
     m = parse_irc_line(line)
     assert m == ChatMessage("ashketchum", "AshKetchum", "up2left")
     assert parse_irc_line(":tmi.twitch.tv 001 justinfan1 :Welcome") is None
-
-
-def test_overlay_files(tmp_path):
-    e = Engine(Config(), Overlay(tmp_path))
-    e.handle(msg("red", "up"), 0)
-    e.render_overlay(0)
-    assert (tmp_path / "inputs.txt").read_text() == "red  up\n"
-    assert (tmp_path / "mode.txt").read_text().startswith("ANARCHY\n")
-    assert render_bar(0.5, 0.8, width=10) == "ANARCHY [#####---|-] DEMOCRACY"
 
 
 def test_run_end_to_end_with_log_backend():

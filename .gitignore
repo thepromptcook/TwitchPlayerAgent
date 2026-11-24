@@ -10,9 +10,6 @@ saves/
 # Local config may hold an OAuth token
 config.toml
 
-# Runtime output
-overlay/
-
 # Python
 __pycache__/
 *.py[cod]

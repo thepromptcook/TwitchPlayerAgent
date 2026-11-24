@@ -45,7 +45,12 @@ def main(argv: list[str] | None = None) -> None:
 
     chat = StdinChat() if args.stdin else TwitchIrcChat(cfg.twitch.channel)
     backend = make_backend(cfg)
-    engine = Engine(cfg, Overlay(cfg.overlay.dir, cfg.overlay.enabled))
+    overlay = None
+    if cfg.overlay.enabled:
+        overlay = Overlay(cfg.overlay.port)
+        overlay.start()
+        backend.on_frame = overlay.set_frame
+    engine = Engine(cfg, overlay)
 
     backend.start()
     stop = threading.Event()
@@ -73,6 +78,8 @@ def main(argv: list[str] | None = None) -> None:
     finally:
         stop.set()
         backend.stop()
+        if overlay is not None:
+            overlay.stop()
 
 
 if __name__ == "__main__":

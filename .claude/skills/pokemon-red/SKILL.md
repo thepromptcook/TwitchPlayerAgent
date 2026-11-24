@@ -83,9 +83,12 @@ roughly. Claude does this better than local models. Keep notes short and factual
 detail, keep it to things the player must know about inputs, not walkthrough content.
 
 ## Streaming setup (OBS)
-- Window Capture of the PyBoy window (`scale = 4` gives 640×576).
-- Text sources with "Read from file": `overlay/inputs.txt` (right-hand input list, like the
-  original), `overlay/mode.txt` (mode and meter bar), `overlay/democracy.txt` (votes and countdown).
+- One Browser Source, `http://localhost:8080`, 1920×1080: the game at 1200×1080 (10:9, crisp
+  pixels) with the input list on the right like the original, plus meter, votes or AI summary.
+- The game window can be minimized; the image comes from the emulator, not the window.
+- Sound: Desktop Audio, or Application Audio Capture of the `python` process.
+- Laptops: a mobile RTX 4090 has 16 GB VRAM, so for Ollama use `qwen3:14b` (9.3 GB), not
+  `qwen3.5:27b`. NVENC encoding uses separate hardware and barely competes with the model.
 - The bot reads chat directly, so stream delay doesn't add input lag. Viewers still see their
   input land late because of the video delay; that lag was part of the original's chaos.
 
