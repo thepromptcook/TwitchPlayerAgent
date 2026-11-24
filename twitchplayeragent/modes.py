@@ -44,6 +44,12 @@ class ModeMeter:
         for u in stale:
             del self._votes[u]
 
+    def force(self, mode: Mode) -> None:
+        """Streamer override (!mode): switch now and forget the old votes, so the bar
+        doesn't flip straight back. Viewers can still vote it back afterwards."""
+        self._votes.clear()
+        self.mode = mode
+
     def counts(self, now: float) -> tuple[int, int]:
         """(anarchy_votes, democracy_votes) currently live."""
         self._prune(now)

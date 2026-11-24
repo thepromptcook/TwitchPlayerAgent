@@ -106,3 +106,43 @@ def test_ticker_changes_from_chat_and_survives_a_restart(tmp_path):
     assert Engine(cfg).ticker == "Back in 5 minutes"  # a restart keeps the latest
     e.handle(ChatMessage("me", "Me", "!ticker", mod=True), 0)  # clear
     assert Engine(cfg).ticker == ""  # stays cleared, even with a config default
+
+
+def test_streamer_can_force_the_mode():
+    from twitchplayeragent.chat import ChatMessage
+
+    e = make(min_votes=3)
+    for user in ("a", "b", "c"):
+        e.handle(msg(user, "anarchy"), 0)  # three live anarchy votes
+    e.handle(ChatMessage("viewer", "viewer", "!mode democracy"), 0)  # viewers can't
+    assert e.mode is Mode.ANARCHY
+    e.handle(msg("x", "up"), 0)
+    e.handle(ChatMessage("me", "Me", "!MODE Democracy", mod=True), 1)
+    assert e.mode is Mode.DEMOCRACY and drain(e) == []  # switched; anarchy queue cleared
+    e.tick(2)
+    assert e.mode is Mode.DEMOCRACY  # the old anarchy votes were forgotten
+    e.handle(ChatMessage("me", "Me", "!mode chaos", mod=True), 3)  # unknown: ignored
+    assert e.mode is Mode.DEMOCRACY
+    e.handle(ChatMessage("me", "Me", "!mode anarchy", mod=True), 4)
+    assert e.mode is Mode.ANARCHY
+
+
+def test_mode_ai_switches_in_and_out(monkeypatch):
+    from twitchplayeragent.chat import ChatMessage
+
+    me = lambda text: ChatMessage("me", "Me", text, mod=True)  # noqa: E731
+    monkeypatch.setattr("twitchplayeragent.engine.unavailable", lambda cfg, check_server: "no API key")
+    e = make()
+    e.handle(me("!mode ai"), 0)
+    assert e.mode is Mode.ANARCHY  # not set up: stays put (and logs why)
+
+    monkeypatch.setattr("twitchplayeragent.engine.unavailable", lambda cfg, check_server: "")
+    e.handle(msg("a", "up"), 0)
+    e.handle(me("!mode ai"), 1)
+    assert e.mode is Mode.AI and drain(e) == []  # the anarchy queue is cleared
+    e.handle(msg("b", "go to the pokemon center"), 2)
+    assert [m.text for m in e.planner.buffer] == ["go to the pokemon center"]  # chat goes to the AI
+    e.handle(me("!mode democracy"), 3)
+    assert e.mode is Mode.DEMOCRACY and e.planner.buffer == []
+    e.handle(msg("c", "up2"), 3)
+    assert e.tally.total == 1  # back to voting

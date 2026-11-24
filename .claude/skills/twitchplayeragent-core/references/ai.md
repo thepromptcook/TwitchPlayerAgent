@@ -1,7 +1,8 @@
 # AI mode (`llm.py`)
 
-`[ai].enabled = true`: every `window_seconds` (10), if chat arrived, one call decides the
-presses. No chat means no call; a failed call is logged and the game is left alone.
+`[ai].enabled = true` starts in AI mode; `!mode ai` from a moderator switches to it mid-stream
+(and `!mode anarchy`/`democracy` back). While on: every `window_seconds` (10), if chat arrived,
+one call decides the presses. No chat means no call; a failed call is logged and the game is left alone.
 
 - Input: `<previous_summary>…</previous_summary>` + `<chat>` lines; repeats collapsed to
   `37x up`; above 300 distinct lines, an even sample (`format_chat`).

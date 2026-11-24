@@ -21,16 +21,20 @@
   `threshold_for_switch()` is where the bar's marker sits.
 - `DemocracyTally`: one vote per user per round, a later message replaces an earlier one; ties go
   to the input voted first; `close()` returns the winner and resets.
-- `Mode.AI` is set by `[ai].enabled`, never by the meter.
+- `Mode.AI` is `Engine.ai_on` (from `[ai].enabled` or `!mode ai`), never set by the meter.
+- `ModeMeter.force(mode)` (for `!mode`) switches and clears the votes, so the bar doesn't flip back.
 
 ## Engine (`engine.py`)
 One `deque` of presses, `maxlen = [anarchy].max_queue` (oldest dropped):
 - anarchy: append every valid button;
 - democracy: the first vote opens a `window_seconds` round; `tick` closes it and appends the
   winner's presses (`wait` adds none);
-- AI: every message goes to the `Planner`; `apply_ai` **replaces** the queue; the meter is off
-  and mode votes are ordinary chat.
+- AI (`ai_on`): every message goes to the `Planner`; `apply_ai` **replaces** the queue; the meter
+  is off and mode votes are ordinary chat. The AI loop always runs but only calls while `ai_on`.
 - A mode switch clears queue, tally and round.
+- `!mode anarchy|democracy|ai` (moderators): `force_mode` switches now; `ai` first checks
+  `unavailable(cfg, check_server=False)` (no network, so chat never stalls) and stays put with a
+  logged reason if the AI isn't set up. Leaving or entering AI clears the planner's buffer.
 - `!ticker <text>` (first word, any case) is never a game command: from a moderator
   (`ChatMessage.mod`: the `mod` tag or a `broadcaster/` badge; terminal chat counts) it calls
   `set_ticker`, which normalizes spaces, caps 500 chars and writes `ticker_file`; `!ticker`

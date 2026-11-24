@@ -31,8 +31,9 @@ min_votes = 5           # don't switch on fewer live votes than this
 start_mode = "anarchy"
 
 [ai]
-# true: an AI reads all chat (commands and plain English) and picks the presses,
-# instead of anarchy/democracy.
+# true: start with an AI reading all chat (commands and plain English) and picking the presses,
+# instead of anarchy/democracy. Either way, "!mode ai" in your chat switches to it mid-stream
+# once the provider below is set up, and "!mode anarchy" / "!mode democracy" switch back.
 enabled = false
 # "claude": Anthropic API. Needs pip install -e ".[claude]" and ANTHROPIC_API_KEY.
 # "ollama": a free local model. Needs Ollama running and: ollama pull qwen3.5:27b

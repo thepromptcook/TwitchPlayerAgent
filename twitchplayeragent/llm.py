@@ -140,10 +140,11 @@ def _ollama_problem(cfg: Config) -> str:
     return ""
 
 
-def unavailable(cfg: Config) -> str:
-    """Why AI mode can't run, or "" if it can."""
+def unavailable(cfg: Config, check_server: bool = True) -> str:
+    """Why AI mode can't run, or "" if it can. check_server=False skips the (up to 5 s)
+    Ollama check, for switching mid-stream without stalling chat."""
     if cfg.ai.provider == "ollama":
-        return _ollama_problem(cfg)
+        return _ollama_problem(cfg) if check_server else ""
     try:
         import anthropic  # noqa: F401  (optional dependency)
     except ImportError:

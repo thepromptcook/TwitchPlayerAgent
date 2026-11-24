@@ -7,7 +7,7 @@
 | `[anarchy]` | max_queue (100) |
 | `[democracy]` | window_seconds (20), max_presses (9) |
 | `[meter]` | to_democracy (0.8), to_anarchy (0.5), vote_lifetime (60), min_votes (5), start_mode ("anarchy") |
-| `[ai]` | enabled (false), provider ("claude" / "ollama"), model ("" = per-provider default), effort ("low"), ollama_url, window_seconds (10), max_presses (9) |
+| `[ai]` | enabled (false = start in anarchy/democracy; `!mode ai` still works if set up), provider ("claude" / "ollama"), model ("" = per-provider default), effort ("low"), ollama_url, window_seconds (10), max_presses (9) |
 | `[backend]` | type ("pyboy" / "keyboard" / "gamepad" / "log"), hold_frames (2), release_frames (2) |
 | `[backend.pyboy]` | rom, state_file, autosave_minutes (5), window ("SDL2"), scale (4), window_keyboard (false) |
 | `[backend.keyboard]` | keys (button → key), hold_ms (50), gap_ms (50) |

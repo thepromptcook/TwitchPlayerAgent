@@ -24,7 +24,7 @@ from .backends import Backend
 from .chat import ChatMessage
 from .commands import parse_anarchy, parse_democracy, parse_mode_vote
 from .config import Config
-from .llm import Planner
+from .llm import Planner, unavailable
 from .modes import DemocracyTally, Mode, ModeMeter
 from .overlay import Overlay
 
@@ -41,7 +41,8 @@ class Engine:
         self.tally = DemocracyTally()
         self.round_ends_at: float | None = None
         self.queue: deque[str] = deque(maxlen=cfg.anarchy.max_queue)
-        self.planner = Planner(cfg) if cfg.ai.enabled else None  # AI mode: meter is off
+        self.planner = Planner(cfg)  # used while ai_on; the meter is off then
+        self.ai_on = cfg.ai.enabled  # [ai].enabled starts in AI mode; !mode ai switches to it
         self.ai_summary = ""
         self.recent: deque[str] = deque(maxlen=cfg.overlay.max_lines)
         self.overlay = overlay
@@ -51,17 +52,20 @@ class Engine:
 
     @property
     def mode(self) -> Mode:
-        return Mode.AI if self.planner else self.meter.mode
+        return Mode.AI if self.ai_on else self.meter.mode
 
     # ---- decision logic -------------------------------------------------
 
     def handle(self, msg: ChatMessage, now: float) -> None:
         """Process one chat message."""
-        if msg.text.lower().split(" ", 1)[0] == "!ticker":  # never a game command
-            if msg.mod:
-                self.set_ticker(msg.text[len("!ticker"):].strip(), msg.display)
+        word, _, rest = msg.text.strip().partition(" ")
+        if word.lower() in ("!ticker", "!mode"):  # streamer commands, never game input
+            if msg.mod and word.lower() == "!ticker":
+                self.set_ticker(rest.strip(), msg.display)
+            elif msg.mod:
+                self.force_mode(rest.strip().lower(), msg.display)
             return
-        if self.planner is not None:  # AI mode: all chat goes to the AI
+        if self.ai_on:  # AI mode: all chat goes to the AI
             self.planner.add(msg)
             return
 
@@ -96,7 +100,7 @@ class Engine:
 
     def tick(self, now: float) -> None:
         """Advance timers: vote decay on the meter and the democracy round clock."""
-        if self.planner is not None:
+        if self.ai_on:
             return
         changed = self.meter.update(now)
         if changed:
@@ -109,6 +113,26 @@ class Engine:
                 self.queue.extend(winner.presses())  # "wait" adds nothing
                 self._show(f">> {winner}")
                 self._wake_presser()
+
+    def force_mode(self, name: str, by: str = "") -> None:
+        """!mode anarchy / democracy / ai from the streamer or a moderator."""
+        if name not in ("anarchy", "democracy", "ai"):
+            log.info("!mode needs anarchy, democracy or ai, got %r", name)
+            return
+        if name == "ai":
+            problem = unavailable(self.cfg, check_server=False)
+            if problem:
+                log.warning("!mode ai ignored: %s", problem)
+                return
+        mode = Mode(name)
+        changed = mode is not self.mode
+        self.ai_on = mode is Mode.AI
+        if mode is not Mode.AI:
+            self.meter.force(mode)
+        self.planner.buffer.clear()  # AI only reads chat from after the switch
+        log.info("Mode set to %s by %s", name.upper(), by or "the streamer")
+        if changed:
+            self._switch(mode)
 
     def set_ticker(self, text: str, by: str = "") -> None:
         """Change the scrolling message ("" hides it) and save it for the next start."""
@@ -136,7 +160,7 @@ class Engine:
     def busy(self) -> bool:
         """Inputs still pending: queued presses, an open round, or unread AI chat."""
         return bool(self.queue or self.round_ends_at is not None
-                    or (self.planner is not None and self.planner.buffer))
+                    or (self.ai_on and self.planner.buffer))
 
     def _switch(self, mode: Mode) -> None:
         log.info("Mode switched to %s", mode.value.upper())
@@ -182,15 +206,14 @@ class Engine:
             await asyncio.sleep(0.25)
 
     async def _ai_loop(self) -> None:
-        assert self.planner is not None
         loop = asyncio.get_running_loop()
         deadline = loop.time()
         while True:
             # Fixed cadence: a slow call shortens the next wait instead of drifting.
             deadline = max(deadline + self.cfg.ai.window_seconds, loop.time())
             await asyncio.sleep(deadline - loop.time())
-            decision = await self.planner.decide()
-            if decision is not None:
+            decision = await self.planner.decide() if self.ai_on else None
+            if decision is not None and self.ai_on:  # a switch may happen mid-call
                 self.apply_ai(*decision)
 
     async def _press_worker(self, backend: Backend) -> None:
@@ -207,8 +230,7 @@ class Engine:
     async def run(self, chat: AsyncIterable[ChatMessage], backend: Backend) -> None:
         self._wake = asyncio.Event()
         jobs = [self._read_chat(chat), self._clock(), self._press_worker(backend)]
-        if self.planner is not None:
-            jobs.append(self._ai_loop())
+        jobs.append(self._ai_loop())  # idle unless AI mode is on (it can be switched on mid-stream)
         tasks = [asyncio.create_task(j) for j in jobs]
         try:
             done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)

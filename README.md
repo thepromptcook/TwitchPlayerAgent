@@ -49,6 +49,15 @@ Switching mode clears any queued inputs. When nobody is voting, the meter
 drifts back to anarchy. `min_votes` (default 5) stops one or two viewers
 flipping the mode on a quiet stream.
 
+### Streamer commands
+Type these in your own Twitch chat (you and your moderators only; viewers are ignored):
+
+| Command | Does |
+|---|---|
+| `!mode anarchy` / `!mode democracy` | switch now, ignoring the vote meter (viewers can still vote it back) |
+| `!mode ai` | hand control to the AI (needs AI mode set up, see below) |
+| `!ticker Your message` / `!ticker` | set / clear the scrolling message |
+
 ### AI mode (optional)
 With `[ai] enabled = true`, an AI plays instead of anarchy and democracy.
 Every 10 seconds (`window_seconds`), it reads all of that window's chat. Chat
