@@ -33,6 +33,37 @@ class GameConfig:
     )
     # Game knowledge for AI mode: what the buttons do and what chat may ask for.
     ai_notes: str = POKEMON_RED_AI_NOTES
+    # Controller games (backend "gamepad"): chat command name -> what it does, replacing
+    # the Game Boy buttons above. See check_command() for the fields; games/gta6.toml.
+    commands: dict[str, dict] = field(default_factory=dict)
+
+
+# Virtual Xbox controller buttons a [game.commands] entry can use (LT/RT are the triggers).
+PAD_BUTTONS = ("A", "B", "X", "Y", "LB", "RB", "LT", "RT", "LS", "RS",
+               "START", "BACK", "UP", "DOWN", "LEFT", "RIGHT")
+RESERVED_WORDS = {"wait", "anarchy", "democracy"}  # chat words with a fixed meaning
+
+
+def check_command(name: str, spec: dict) -> None:
+    """One [game.commands] entry. Fields:
+    button   one of PAD_BUTTONS          stick    "left" or "right", with x and y (-1..1)
+    seconds  how long a press lasts (0.1)  toggle   stays held until repeated or `stop`
+    release  true: let go of everything    description  shown to the AI"""
+    if not re.fullmatch(r"[a-z]+", name) or name in RESERVED_WORDS:
+        raise ValueError(f"command {name!r}: use lowercase letters only, not {sorted(RESERVED_WORDS)}")
+    unknown = set(spec) - {"button", "stick", "x", "y", "seconds", "toggle", "release", "description"}
+    if unknown:
+        raise ValueError(f"command {name!r}: unknown fields {sorted(unknown)}")
+    if spec.get("button") is not None and spec["button"] not in PAD_BUTTONS:
+        raise ValueError(f"command {name!r}: button must be one of {list(PAD_BUTTONS)}")
+    if spec.get("stick") is not None and spec["stick"] not in ("left", "right"):
+        raise ValueError(f"command {name!r}: stick must be 'left' or 'right'")
+    if not all(-1 <= float(spec.get(k, 0)) <= 1 for k in ("x", "y")):
+        raise ValueError(f"command {name!r}: x and y must be between -1 and 1")
+    if float(spec.get("seconds", 0.1)) <= 0:
+        raise ValueError(f"command {name!r}: seconds must be positive")
+    if not (spec.get("release") or "button" in spec or "stick" in spec):
+        raise ValueError(f"command {name!r}: needs a button, a stick, or release = true")
 
 
 @dataclass
@@ -96,7 +127,7 @@ class KeyboardConfig:
 
 @dataclass
 class BackendConfig:
-    type: str = "pyboy"  # "pyboy", "keyboard", or "log"
+    type: str = "pyboy"  # "pyboy", "keyboard", "gamepad" (virtual Xbox controller), or "log"
     # PyBoy timing in frames (60/s). Tune if inputs are dropped or feel sluggish.
     hold_frames: int = 2
     release_frames: int = 2
@@ -127,17 +158,28 @@ class Config:
     overlay: OverlayConfig = field(default_factory=OverlayConfig)
 
     @property
-    def allowed_buttons(self) -> frozenset[str]:
+    def allowed_commands(self) -> frozenset[str]:
+        """The chat words that press something: [game.commands] names, else the Game Boy buttons."""
+        if self.game.commands:
+            return frozenset(self.game.commands)
         return frozenset(b.lower() for b in self.game.buttons)
 
     def validate(self) -> None:
-        bad = [b for b in self.allowed_buttons if b not in ALL_BUTTONS]
-        if bad:
-            raise ValueError(f"Unknown buttons in [game].buttons: {bad}")
+        if self.game.commands:
+            for name, spec in self.game.commands.items():
+                check_command(name, spec)
+            if self.backend.type not in ("gamepad", "log"):
+                raise ValueError("[game.commands] need [backend].type = 'gamepad'")
+        else:
+            bad = [b for b in self.allowed_commands if b not in ALL_BUTTONS]
+            if bad:
+                raise ValueError(f"Unknown buttons in [game].buttons: {bad}")
+            if self.backend.type == "gamepad":
+                raise ValueError("[backend].type 'gamepad' needs a [game.commands] table")
         if self.meter.start_mode not in ("anarchy", "democracy"):
             raise ValueError("[meter].start_mode must be 'anarchy' or 'democracy'")
-        if self.backend.type not in ("pyboy", "keyboard", "log"):
-            raise ValueError("[backend].type must be 'pyboy', 'keyboard', or 'log'")
+        if self.backend.type not in ("pyboy", "keyboard", "gamepad", "log"):
+            raise ValueError("[backend].type must be 'pyboy', 'keyboard', 'gamepad', or 'log'")
         if not 0 < self.meter.to_democracy <= 1 or not 0 < self.meter.to_anarchy <= 1:
             raise ValueError("[meter] thresholds must be between 0 and 1")
         if self.ai.provider not in ("claude", "ollama"):
@@ -162,24 +204,37 @@ def _build(cls: type, data: dict[str, Any]) -> Any:
     return cls(**kwargs)
 
 
-def load_config(path: str | Path | None) -> Config:
-    if path is None:
-        cfg = Config()
-    else:
+def load_config(paths: str | Path | list | None) -> Config:
+    """Load one TOML file, or several merged in order so later files win: e.g.
+    [config.toml, games/gta6.toml] keeps your channel and overlay but plays GTA VI."""
+    if paths is None:
+        paths = []
+    elif isinstance(paths, (str, Path)):
+        paths = [paths]
+    data: dict[str, Any] = {}
+    for path in paths:
         text = Path(path).read_text(encoding="utf-8")
         try:
-            data = tomllib.loads(text)
+            _merge(data, tomllib.loads(text))
         except tomllib.TOMLDecodeError as exc:
             raise SystemExit(_explain_toml_error(path, text, exc)) from None
-        try:
-            cfg = _build(Config, data)
-        except (TypeError, ValueError) as exc:
-            raise SystemExit(f"Config error in {path}: {exc}") from None
+    where = " + ".join(str(p) for p in paths) or "defaults"
     try:
+        cfg = _build(Config, data)
         cfg.validate()
-    except ValueError as exc:
-        raise SystemExit(f"Config error in {path or 'defaults'}: {exc}") from None
+    except (TypeError, ValueError) as exc:
+        raise SystemExit(f"Config error in {where}: {exc}") from None
     return cfg
+
+
+def _merge(base: dict, extra: dict) -> None:
+    """Deep-merge ``extra`` into ``base``. A command table is replaced whole, so a game
+    file's [game.commands] never mixes with another game's."""
+    for key, value in extra.items():
+        if isinstance(value, dict) and isinstance(base.get(key), dict) and key != "commands":
+            _merge(base[key], value)
+        else:
+            base[key] = value
 
 
 def _explain_toml_error(path: str | Path, text: str, exc: "tomllib.TOMLDecodeError") -> str:

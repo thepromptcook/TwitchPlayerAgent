@@ -21,7 +21,7 @@ def field_names(cls) -> set[str]:
 
 def test_skills_have_frontmatter_and_stay_short():
     skills = {p.parent.name for p in SKILLS.glob("*/SKILL.md")}
-    assert skills >= {"twitchplayeragent-core", "pokemon-red"}
+    assert skills >= {"twitchplayeragent-core", "pokemon-red", "gta6-xbox"}
     for path in SKILLS.rglob("*.md"):
         text = path.read_text(encoding="utf-8")
         if path.name == "SKILL.md":

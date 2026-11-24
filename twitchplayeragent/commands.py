@@ -6,6 +6,8 @@ Rules mirrored from the 2014 run:
   surrounding whitespace ignored). "up" works, "go up pls" does not.
 * Buttons: a, b, up, down, left, right, start, select. Select was disabled
   during the Red run after it was used to soft-reset, so it is off by default.
+  A controller game (e.g. GTA VI) replaces these with the command names in its
+  ``[game.commands]`` table; the grammar below is the same for any vocabulary.
 * Anarchy mode: a single button name. Every one is executed, in order.
 * Democracy mode: compound / sequenced inputs are allowed, e.g. "up2",
   "upleft", "start9", "a2b", plus "wait" (do nothing this round).
@@ -16,6 +18,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from functools import lru_cache
 from enum import Enum
 
 ALL_BUTTONS: tuple[str, ...] = ("a", "b", "up", "down", "left", "right", "start", "select")
@@ -57,9 +60,11 @@ class Sequence:
         return "".join(b if n == 1 else f"{b}{n}" for b, n in self.steps)
 
 
-# Longest names first so the tokenizer never splits "start" into something else.
-_TOKEN_ORDER = sorted(ALL_BUTTONS, key=len, reverse=True)
-_TOKEN_RE = re.compile(r"(" + "|".join(_TOKEN_ORDER) + r")([1-9])?")
+@lru_cache(maxsize=8)
+def _token_re(allowed: frozenset[str]) -> re.Pattern:
+    # Longest names first, so "goup" is one token rather than "go" + "up".
+    names = sorted(allowed, key=len, reverse=True)
+    return re.compile(r"(" + "|".join(map(re.escape, names)) + r")([1-9])?")
 
 
 def normalize(message: str) -> str:
@@ -100,7 +105,7 @@ def parse_democracy(
     steps: list[tuple[str, int]] = []
     pos = 0
     while pos < len(text):
-        m = _TOKEN_RE.match(text, pos)
+        m = _token_re(allowed).match(text, pos)
         if m is None:
             return None
         button = m.group(1)

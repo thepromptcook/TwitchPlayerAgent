@@ -2,15 +2,19 @@
 
 Twitch chat plays Pokémon Red with the original Twitch Plays Pokémon rules (anarchy,
 democracy, 80/50 mode meter), plus an optional AI mode (Claude or a local Ollama model),
-streamed through one OBS Browser Source.
+streamed through one OBS Browser Source. GTA VI on Xbox uses the same rules through a
+virtual Xbox controller and Xbox Remote Play.
 
 Start from `.claude/skills/twitchplayeragent-core/SKILL.md` (module map, workflow), then read
-only the reference for the area you change. Game knowledge: `.claude/skills/pokemon-red/SKILL.md`.
+only the reference for the area you change. Game knowledge: `.claude/skills/pokemon-red/SKILL.md`
+and `.claude/skills/gta6-xbox/SKILL.md` (GTA VI on Xbox via Remote Play, `games/gta6.toml`).
 
 ## Keep it simple
 The owner asked not to overcomplicate the codebase: nine modules plus `overlay.html`, four flags
-(`-c`, `--stdin`, `--dry-run`, `-v`). Prefer a config setting over a flag, a function over a class,
-and an existing module over a new one. Game knowledge is config and skill text, never core code.
+(`-c` (repeatable, to layer a game file), `--stdin`, `--dry-run`, `-v`). Prefer a config setting
+over a flag, a function over a class, and an existing module over a new one. Game knowledge is
+config and skill text, never core code: a new game is a file in `games/` plus a skill.
+Work in this repo, not TwitchPlaysTest, unless the owner says otherwise.
 
 ## Work efficiently
 - `grep -n` first, then read only what you change; don't open `overlay.html` for Python work.

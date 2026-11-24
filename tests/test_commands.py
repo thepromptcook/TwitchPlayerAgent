@@ -53,3 +53,19 @@ def test_mode_votes():
     assert parse_mode_vote("Democracy") is ModeVote.DEMOCRACY
     assert parse_mode_vote(" anarchy ") is ModeVote.ANARCHY
     assert parse_mode_vote("vote democracy") is None
+
+
+GTA = frozenset({"up", "left", "goup", "lookleft", "a", "b", "jump", "stop"})
+
+
+@pytest.mark.parametrize("msg,expected", [
+    ("goup", "goup"), ("JUMP", "jump"), ("go", None), ("start", None), ("lookleft", "lookleft"),
+])
+def test_anarchy_with_a_game_vocabulary(msg, expected):
+    assert parse_anarchy(msg, GTA) == expected
+
+
+def test_democracy_with_a_game_vocabulary():
+    assert str(parse_democracy("goup2lookleft", GTA)) == "goup2lookleft"  # longest name wins
+    assert parse_democracy("upleft", GTA).presses() == ["up", "left"]
+    assert parse_democracy("start9", GTA) is None  # not a command in this game

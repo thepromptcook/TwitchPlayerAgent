@@ -1,0 +1,56 @@
+# Grand Theft Auto VI on an Xbox Series X|S, played through Xbox Remote Play in the Xbox app
+# on this PC: the bot's virtual Xbox controller acts as a controller plugged into the PC.
+# Layer it on your normal config, which keeps your channel, overlay, meter and AI settings:
+#   python -m twitchplayeragent -c config.toml -c games/gta6.toml
+# Needs pip install -e ".[gamepad]" (installs the ViGEmBus driver), the Xbox app's Remote Play
+# window in front, story mode, and GTA VI's Default control scheme.
+# Setup and controls: .claude/skills/gta6-xbox/SKILL.md
+
+[game]
+name = "Grand Theft Auto VI"
+ai_notes = """Grand Theft Auto VI story mode on an Xbox (Default control scheme), in Leonida \
+(Vice City and surroundings). The character walks, runs, drives, takes cover and fights; while \
+aiming, the target locks on. Commands described as on/off or "until stop" stay active until \
+repeated or until stop, so turn them off when chat moves on. Chat may say things like \
+"steal that car", "drive to the beach", "shoot him" or "run away"."""
+
+# Command names follow Twitch Plays Pokemon: up/down/left/right move, a and b are the
+# triggers (shoot, aim). Not mapped on purpose: View (map), Menu (pause), the D-pad (phone,
+# radio): chat would get stuck in menus.
+[game.commands]
+up        = { stick = "left", y = 1, seconds = 1.0, description = "move forward briefly (steers straight in a car)" }
+down      = { stick = "left", y = -1, seconds = 1.0, description = "move backward briefly" }
+left      = { stick = "left", x = -1, seconds = 0.6, description = "move or steer left briefly" }
+right     = { stick = "left", x = 1, seconds = 0.6, description = "move or steer right briefly" }
+a         = { button = "RT", description = "shoot once" }
+b         = { button = "LT", toggle = true, description = "aim on/off; while aiming, a shoots the locked-on target" }
+goup      = { stick = "left", y = 1, toggle = true, description = "keep walking forward until stop" }
+godown    = { stick = "left", y = -1, toggle = true, description = "keep walking backward until stop" }
+goleft    = { stick = "left", x = -1, toggle = true, description = "keep walking left until stop" }
+goright   = { stick = "left", x = 1, toggle = true, description = "keep walking right until stop" }
+sprint    = { stick = "left", y = 1, button = "LS", toggle = true, description = "run forward until stop (GTA VI runs on a left-stick click)" }
+stop      = { release = true, description = "let go of everything: walking, running, aiming, driving" }
+lookleft  = { stick = "right", x = -0.7, seconds = 0.4, description = "turn the camera left" }
+lookright = { stick = "right", x = 0.7, seconds = 0.4, description = "turn the camera right" }
+lookup    = { stick = "right", y = 0.5, seconds = 0.3, description = "tilt the camera up" }
+lookdown  = { stick = "right", y = -0.5, seconds = 0.3, description = "tilt the camera down" }
+lookback  = { stick = "right", x = 1, seconds = 0.9, description = "turn the camera around" }
+jump      = { button = "A", description = "jump or climb" }
+crouch    = { button = "B", description = "crouch or stand up" }
+cover     = { button = "RB", description = "take cover" }
+melee     = { button = "X", description = "punch or melee attack" }
+enter     = { button = "Y", description = "get in or out of a vehicle, or interact" }
+holster   = { button = "LB", description = "holster or draw the weapon" }
+drive     = { button = "RT", toggle = true, description = "accelerate on/off (steer with left and right)" }
+reverse   = { button = "LT", toggle = true, description = "brake and reverse on/off" }
+handbrake = { button = "A", seconds = 0.6, description = "handbrake" }
+
+[backend]
+type = "gamepad"
+
+[anarchy]
+max_queue = 10      # commands last up to a second each: keep the backlog short
+
+[democracy]
+window_seconds = 5  # 20 s rounds suit Pokemon, not driving
+max_presses = 5

@@ -67,7 +67,12 @@ def build_tool(buttons: frozenset[str]) -> dict:
 
 def build_system(cfg: Config) -> str:
     a = cfg.ai
-    buttons = ", ".join(sorted(cfg.allowed_buttons))
+    if cfg.game.commands:  # a controller game: name each command and what it does
+        vocab = "Commands (each entry in presses runs one, in order):\n" + "\n".join(
+            f"- {n}: {cfg.game.commands[n].get('description', '')}".rstrip(": ")
+            for n in sorted(cfg.game.commands))
+    else:
+        vocab = f"Buttons: {', '.join(sorted(cfg.allowed_commands))}."
     if a.provider == "claude":
         how = f"by calling `{TOOL_NAME}`"
         last = f"Always answer with a `{TOOL_NAME}` call and nothing else."
@@ -80,7 +85,7 @@ def build_system(cfg: Config) -> str:
         f"seconds (repeated messages are collapsed into counts like \"37x up\"). Work out what "
         f"chat as a whole wants, the majority and the mood rather than any single viewer, and "
         f"choose the buttons that do it {how}.\n\n"
-        f"Buttons: {buttons}. Chat may type classic commands (\"up\", \"a\", \"up2left\" means "
+        f"{vocab}\nChat may type commands exactly (\"up\", \"a\", \"up2left\" means "
         f"up, up, left) or plain language.\n\n"
         f"About this game: {cfg.game.ai_notes}\n\n"
         f"Rules:\n"
@@ -154,8 +159,8 @@ class Planner:
     def __init__(self, cfg: Config, client=None) -> None:
         self.cfg = cfg
         self.client = client  # Claude client (created on first use); tests pass a fake
-        self.schema = answer_schema(cfg.allowed_buttons)
-        self.tool = build_tool(cfg.allowed_buttons)
+        self.schema = answer_schema(cfg.allowed_commands)
+        self.tool = build_tool(cfg.allowed_commands)
         self.system = build_system(cfg)
         self.previous = ""
         self.buffer: list[ChatMessage] = []
@@ -184,7 +189,7 @@ class Planner:
         if not isinstance(answer, dict):
             return None
         summary = str(answer.get("summary", "")).strip()
-        presses = [p for p in answer.get("presses") or [] if p in self.cfg.allowed_buttons]
+        presses = [p for p in answer.get("presses") or [] if p in self.cfg.allowed_commands]
         presses = presses[: self.cfg.ai.max_presses]
         self.previous = summary or self.previous
         log.info("AI: %s -> %s", summary, " ".join(presses) or "wait")

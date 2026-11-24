@@ -18,6 +18,11 @@
   hold+release, set the Event. Every frame: `_window_pump()` (quit → stop) and `_publish`
   (frame + sound). Once a second: re-arm the freeze watchdog (`faulthandler` → `hang-report.txt`
   beside the save) and autosave every `autosave_minutes` (tmp + replace). On exit: save, stop.
+- `GamepadBackend`: virtual Xbox 360 controller via vgamepad (`VX360Gamepad`; buttons through
+  `XUSB`, triggers and sticks as floats, `update()` sends). State = toggled buttons + toggled
+  stick positions; a momentary command applies on top for `seconds`, then the toggled state is
+  re-sent; a toggle flips (a new direction on the same stick replaces the old); `release` clears.
+  `stop()` resets the pad. Windows only; Xbox Remote Play forwards it to a console.
 - `KeyboardBackend`: keys into a focused external emulator (mGBA); `pydirectinput` on Windows,
   else `pynput`; `keys` map, `hold_ms`, `gap_ms`. No picture or sound for the overlay.
 - `LogBackend`: records `pressed`; `--dry-run` selects it.
@@ -41,7 +46,7 @@ One OBS Browser Source, `http://localhost:<port>` at 1920×1080, 127.0.0.1 only.
 - Busy port → SystemExit naming `[overlay].port`; port 0 picks a free one (tests).
 
 ## CLI (`__main__.py`)
-Loads config, `--dry-run` forces the log backend, checks `unavailable()` in AI mode, wires the
+Loads config (`-c` repeatable, merged in order), `--dry-run` forces the log backend, checks `unavailable()` in AI mode, wires the
 overlay hooks, runs the engine on a daemon thread while PyBoy owns the main thread (SDL needs
 it on macOS). Logging goes through `QueueHandler` → `QueueListener` so a log call never blocks.
 Windows: `disable_quick_edit()`; `stop_on_ctrl_c(stop)` is the SIGINT handler (first press:

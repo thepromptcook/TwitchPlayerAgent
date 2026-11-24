@@ -31,7 +31,7 @@ def ai_cfg(**ai):
 
 
 def test_tool_only_allows_real_buttons():
-    tool = build_tool(Config().allowed_buttons)
+    tool = build_tool(Config().allowed_commands)
     enum = tool["input_schema"]["properties"]["presses"]["items"]["enum"]
     assert enum == ["a", "b", "down", "left", "right", "start", "up"]
     assert tool["strict"] is True
@@ -150,7 +150,7 @@ def test_ollama_decides_with_schema(fake_ollama):
     assert asyncio.run(p.decide()) == ("go up", ["up", "up"])
     sent = fake_ollama["requests"][0]
     assert sent["model"] == "qwen3.5:27b"
-    assert sent["format"]["properties"]["presses"]["items"]["enum"] == sorted(cfg.allowed_buttons)
+    assert sent["format"]["properties"]["presses"]["items"]["enum"] == sorted(cfg.allowed_commands)
     assert sent["think"] is False and sent["stream"] is False
     assert "walk up a bit" in sent["messages"][1]["content"]
     assert "JSON" in sent["messages"][0]["content"]
@@ -180,3 +180,14 @@ def test_game_knowledge_comes_from_config():
     prompt = build_system(cfg)
     assert "Tetris" in prompt and "Left and right move the piece." in prompt
     assert "Pok" not in prompt  # no Pokémon text hardcoded in the core
+
+
+def test_controller_game_prompt_lists_commands():
+    from twitchplayeragent.config import load_config
+    from twitchplayeragent.llm import build_system
+
+    cfg = load_config(["config.example.toml", "games/gta6.toml"])
+    prompt = build_system(cfg)
+    assert "- drive: accelerate on/off" in prompt and "Grand Theft Auto VI" in prompt
+    enum = Planner(cfg, FakeClient()).tool["input_schema"]["properties"]["presses"]["items"]["enum"]
+    assert set(enum) == set(cfg.game.commands)

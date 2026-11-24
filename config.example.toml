@@ -1,4 +1,6 @@
 # Copy to config.toml and edit. Every key is optional; defaults are shown.
+# Other games: layer a game file on top, which keeps your channel and overlay settings:
+#   python -m twitchplayeragent -c config.toml -c games/gta6.toml
 
 [twitch]
 channel = "your_channel_name"   # chat is read anonymously; the bot never posts
@@ -43,6 +45,7 @@ max_presses = 9         # presses per decision
 
 [backend]
 type = "pyboy"          # "pyboy" (built-in emulator), "keyboard" (external emulator), or "log"
+                        # ("gamepad", a virtual Xbox controller, comes with a game file like games/gta6.toml)
 hold_frames = 2         # PyBoy only: frames a button is held (60 frames = 1 second)
 release_frames = 2      # PyBoy only: frames between presses
 

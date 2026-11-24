@@ -5,8 +5,10 @@ import threading
 import time
 import types
 
+import pytest
+
 from twitchplayeragent.backends import PyBoyBackend
-from twitchplayeragent.config import PyBoyConfig
+from twitchplayeragent.config import PyBoyConfig, load_config
 
 
 class FakeScreen:
@@ -103,3 +105,65 @@ def test_window_events_are_read_and_quit_closes_cleanly(tmp_path, monkeypatch):
 
     assert len(pumps) == 30 and emus[0].frame == 30  # events read every frame; quit at frame 30
     assert (tmp_path / "red.state").read_bytes() == b"state" and stop.is_set()  # saved, stopped
+
+
+# ---- GamepadBackend (virtual Xbox controller) -------------------------------------------
+
+from twitchplayeragent.backends import GamepadBackend  # noqa: E402
+from twitchplayeragent.config import PAD_BUTTONS  # noqa: E402
+
+
+class FakePad:
+    """Records the controller state sent with each update(), like vgamepad.VX360Gamepad."""
+
+    def __init__(self):
+        self.buttons, self.lt, self.rt, self.left, self.right = set(), 0.0, 0.0, (0.0, 0.0), (0.0, 0.0)
+        self.sent = []
+
+    def press_button(self, button): self.buttons.add(button)
+    def release_button(self, button): self.buttons.discard(button)
+    def left_trigger_float(self, value_float): self.lt = value_float
+    def right_trigger_float(self, value_float): self.rt = value_float
+    def left_joystick_float(self, x_value_float, y_value_float): self.left = (x_value_float, y_value_float)
+    def right_joystick_float(self, x_value_float, y_value_float): self.right = (x_value_float, y_value_float)
+    def reset(self): self.__init__()
+
+    def update(self):
+        names = {b.replace("XUSB_GAMEPAD_", "") for b in self.buttons}
+        self.sent.append((names, self.lt, self.rt, self.left, self.right))
+
+
+@pytest.fixture
+def gamepad(monkeypatch):
+    fake = types.SimpleNamespace(VX360Gamepad=FakePad, XUSB_BUTTON=types.SimpleNamespace(
+        **{m: m for m in GamepadBackend.XUSB.values()}))
+    monkeypatch.setitem(sys.modules, "vgamepad", fake)
+    monkeypatch.setattr(GamepadBackend, "GAP", 0)
+    cfg = load_config(["config.example.toml", "games/gta6.toml"])
+    backend = GamepadBackend(cfg.game.commands)
+    backend.start()
+    return backend
+
+
+def test_every_pad_button_maps_to_the_controller():
+    assert set(GamepadBackend.XUSB) | {"LT", "RT"} == set(PAD_BUTTONS)
+
+
+def test_gamepad_momentary_toggle_and_stop(gamepad):
+    pad = gamepad.pad
+    gamepad.press("jump")  # tap A, then let go
+    assert pad.sent[-2][0] == {"A"} and pad.sent[-1][0] == set()
+    gamepad.press("drive")  # RT stays down
+    gamepad.press("left")  # steer while accelerating, then back to straight
+    assert pad.sent[-2][2:4] == (1.0, (-1.0, 0.0)) and pad.sent[-1][2:4] == (1.0, (0.0, 0.0))
+    gamepad.press("goup")  # walking forward stays on...
+    gamepad.press("goleft")  # ...a new direction on the same stick replaces it
+    assert pad.sent[-1][3] == (-1.0, 0.0)
+    gamepad.press("goleft")  # same command again: off
+    assert pad.sent[-1][3] == (0.0, 0.0) and pad.sent[-1][2] == 1.0  # still driving
+    gamepad.press("stop")  # let go of everything
+    assert pad.sent[-1] == (set(), 0.0, 0.0, (0.0, 0.0), (0.0, 0.0))
+    gamepad.press("sprint")  # stick and LS together
+    assert pad.sent[-1][0] == {"LEFT_THUMB"} and pad.sent[-1][3] == (0.0, 1.0)
+    gamepad.stop()  # exiting releases everything
+    assert pad.sent[-1] == (set(), 0.0, 0.0, (0.0, 0.0), (0.0, 0.0))

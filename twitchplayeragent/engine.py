@@ -70,7 +70,7 @@ class Engine:
             return
 
         if self.mode is Mode.ANARCHY:
-            button = parse_anarchy(msg.text, self.cfg.allowed_buttons)
+            button = parse_anarchy(msg.text, self.cfg.allowed_commands)
             if button is None:
                 return
             self.queue.append(button)
@@ -78,7 +78,7 @@ class Engine:
             self._show(f"{msg.display}  {button}")
             self._wake_presser()
         else:
-            seq = parse_democracy(msg.text, self.cfg.allowed_buttons, self.cfg.democracy.max_presses)
+            seq = parse_democracy(msg.text, self.cfg.allowed_commands, self.cfg.democracy.max_presses)
             if seq is None:
                 return
             if self.round_ends_at is None:  # the first vote opens the round

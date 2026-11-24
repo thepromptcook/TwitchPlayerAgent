@@ -2,6 +2,8 @@
 
 * PyBoyBackend: runs the ROM inside PyBoy and presses buttons on exact frames.
 * KeyboardBackend: sends keypresses to an external emulator window.
+* GamepadBackend: a virtual Xbox controller for [game.commands] games; Windows,
+  games and Xbox Remote Play see it as a real one, so it also reaches a console.
 * LogBackend: dry run, only records/logs presses.
 
 ``press(button)`` blocks until the button is pressed *and released*; the engine
@@ -88,6 +90,80 @@ class KeyboardBackend(Backend):
         time.sleep(self.cfg.hold_ms / 1000)
         self._up(key)
         time.sleep(self.cfg.gap_ms / 1000)
+
+
+class GamepadBackend(Backend):
+    """A virtual Xbox 360 controller (vgamepad + the ViGEmBus driver). Each chat command is
+    a [game.commands] entry: a press or stick push for ``seconds``; a ``toggle`` that stays
+    held (sticks and buttons) until repeated or ``release``; momentary presses happen on top
+    of whatever is toggled, so ``left`` steers while ``drive`` keeps the accelerator down."""
+
+    GAP = 0.05  # seconds between commands
+    XUSB = {  # our button name -> vgamepad XUSB_BUTTON member (LT/RT are triggers)
+        "A": "XUSB_GAMEPAD_A", "B": "XUSB_GAMEPAD_B", "X": "XUSB_GAMEPAD_X", "Y": "XUSB_GAMEPAD_Y",
+        "LB": "XUSB_GAMEPAD_LEFT_SHOULDER", "RB": "XUSB_GAMEPAD_RIGHT_SHOULDER",
+        "LS": "XUSB_GAMEPAD_LEFT_THUMB", "RS": "XUSB_GAMEPAD_RIGHT_THUMB",
+        "START": "XUSB_GAMEPAD_START", "BACK": "XUSB_GAMEPAD_BACK",
+        "UP": "XUSB_GAMEPAD_DPAD_UP", "DOWN": "XUSB_GAMEPAD_DPAD_DOWN",
+        "LEFT": "XUSB_GAMEPAD_DPAD_LEFT", "RIGHT": "XUSB_GAMEPAD_DPAD_RIGHT",
+    }
+
+    def __init__(self, commands: dict[str, dict]) -> None:
+        self.commands = commands
+        self.pad = None
+        self.held: set[str] = set()  # toggled buttons
+        self.sticks: dict[str, tuple[float, float]] = {}  # toggled stick positions
+
+    def start(self) -> None:
+        try:
+            import vgamepad
+        except ImportError as exc:
+            raise SystemExit('Controller games need vgamepad: pip install -e ".[gamepad]" '
+                             "(Windows; it also installs the ViGEmBus driver)") from exc
+        self.vg = vgamepad
+        self.pad = vgamepad.VX360Gamepad()
+        self._apply(set(), {})
+
+    def stop(self) -> None:
+        if self.pad is not None:  # let go of everything when the bot exits
+            self.pad.reset()
+            self.pad.update()
+
+    def press(self, name: str) -> None:
+        spec = self.commands.get(name)
+        if spec is None:
+            return
+        buttons = {spec["button"]} if "button" in spec else set()
+        sticks = {spec["stick"]: (float(spec.get("x", 0)), float(spec.get("y", 0)))} if "stick" in spec else {}
+        if spec.get("release"):
+            self.held.clear()
+            self.sticks.clear()
+        elif spec.get("toggle"):
+            already_on = buttons <= self.held and all(self.sticks.get(k) == v for k, v in sticks.items())
+            if already_on:  # same command again: off
+                self.held -= buttons
+                for stick in sticks:
+                    self.sticks.pop(stick, None)
+            else:  # on (a new direction on the same stick replaces the old one)
+                self.held |= buttons
+                self.sticks.update(sticks)
+        else:  # momentary, on top of what's toggled
+            self._apply(self.held | buttons, {**self.sticks, **sticks})
+            time.sleep(float(spec.get("seconds", 0.1)))
+        self._apply(self.held, self.sticks)
+        time.sleep(self.GAP)
+
+    def _apply(self, buttons: set[str], sticks: dict[str, tuple[float, float]]) -> None:
+        pad, xusb = self.pad, self.vg.XUSB_BUTTON
+        for name, member in self.XUSB.items():
+            (pad.press_button if name in buttons else pad.release_button)(button=getattr(xusb, member))
+        pad.left_trigger_float(value_float=1.0 if "LT" in buttons else 0.0)
+        pad.right_trigger_float(value_float=1.0 if "RT" in buttons else 0.0)
+        x, y = sticks.get("left", (0.0, 0.0))
+        pad.left_joystick_float(x_value_float=x, y_value_float=y)
+        x, y = sticks.get("right", (0.0, 0.0))
+        pad.right_joystick_float(x_value_float=x, y_value_float=y)
+        pad.update()
 
 
 class PyBoyBackend(Backend):
@@ -220,4 +296,6 @@ def make_backend(cfg: Config) -> Backend:
         return PyBoyBackend(b.pyboy, b.hold_frames, b.release_frames)
     if b.type == "keyboard":
         return KeyboardBackend(b.keyboard)
+    if b.type == "gamepad":
+        return GamepadBackend(cfg.game.commands)
     return LogBackend()

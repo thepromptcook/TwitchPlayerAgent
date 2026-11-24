@@ -135,6 +135,33 @@ there's no built-in game image or sound: the left side stays transparent, so put
 a Window Capture of your emulator underneath. If port 8080 is taken, set
 `[overlay].port`.
 
+## GTA 6 on Xbox
+GTA 6 is console-only, so the bot reaches your Xbox through **Xbox Remote Play**
+in the Xbox app on your PC. The bot becomes a virtual Xbox controller, and the
+Xbox app forwards it to the console like a controller plugged into the PC.
+
+1. On the Xbox: **Settings → Devices & connections → Remote features → Enable
+   remote features**.
+2. On the PC: `pip install -e ".[gamepad]"`. This also runs the ViGEmBus driver
+   installer; accept it. Then connect to your Xbox with Remote Play in the Xbox
+   app and start GTA 6 in story mode, with the **Default** control scheme.
+3. Run it with your usual config plus the game file, which keeps your channel and
+   overlay:
+   ```bash
+   python -m twitchplayeragent -c config.toml -c games/gta6.toml
+   ```
+4. Keep the Xbox app's Remote Play window in front while streaming.
+
+Chat commands keep the Twitch Plays Pokémon words: `up` `down` `left` `right`
+move briefly, `a` shoots and `b` toggles aim. `goup`, `sprint`, `drive` and
+`reverse` stay on until `stop`, plus `jump` `crouch` `cover` `melee` `enter`
+`holster` `handbrake` and `lookleft`/`lookright`/`lookup`/`lookdown`/`lookback`.
+The full list is in `games/gta6.toml`.
+
+In OBS, put a Window Capture of the Xbox app (or an HDMI capture card) under the
+Browser Source. The overlay's bar sits along the bottom, and the area above it
+is transparent.
+
 ## Chat connection
 Chat is read anonymously over Twitch IRC (TLS, port 6697), so no login is
 needed; the bot never posts. It reconnects automatically if the connection

@@ -3,10 +3,13 @@
 ## Chat grammar (`commands.py`)
 - A message counts only if the **whole message**, trimmed and lowercased, is a command.
 - Buttons: a, b, up, down, left, right, start, select (`ALL_BUTTONS`); `[game].buttons` picks
-  the allowed ones (`DEFAULT_BUTTONS` leaves out select).
+  the allowed ones (`DEFAULT_BUTTONS` leaves out select). A controller game replaces them with
+  its `[game.commands]` names: `Config.allowed_commands` is the vocabulary everywhere (parser,
+  AI enum). Names are lowercase letters, never `wait`/`anarchy`/`democracy`.
 - `parse_anarchy`: one button name.
-- `parse_democracy`: `wait`, or button tokens with an optional repeat digit 1–9 run together:
-  `up4`, `upleft`, `up2left3`, `start9`, `a2b`. Tokenize longest name first; merge adjacent
+- `parse_democracy`: `wait`, or command tokens with an optional repeat digit 1–9 run together:
+  `up4`, `upleft`, `up2left3`, `start9`, `a2b`. Tokenize longest name first (`_token_re`, cached
+  per vocabulary, so `goup` beats `go`+`up`); merge adjacent
   repeats so `upup` == `up2` (canonical `str(Sequence)` is the vote key). Reject totals over
   `max_presses` (9), unknown tokens, `up0`, `up10`, `a+b`, `wait2`.
 - `parse_mode_vote`: `anarchy` / `democracy`, in either mode.

@@ -63,6 +63,6 @@ models. Keep notes short, about inputs, not walkthrough content.
 3. Window freezes: `saves/hang-report.txt` (empty = no freeze) shows where it stuck.
 
 ## Adding another game later
-Pick `buttons` from the core's eight, write `ai_notes`, set ROM and state paths, add a
-`<game>/SKILL.md` like this one. Nothing in the core should change; a game needing more than
-Game Boy buttons is a core change to discuss with the owner first.
+Another Game Boy game: pick `buttons` from the core's eight, write `ai_notes`, set ROM and
+state paths, add a skill like this one. A controller game: a `games/<game>.toml` with a
+`[game.commands]` table and backend `gamepad`, like `gta6-xbox`. Neither changes the core.

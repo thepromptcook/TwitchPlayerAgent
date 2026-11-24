@@ -27,8 +27,11 @@ def setup_logging(verbose: bool) -> logging.handlers.QueueListener:
     console = logging.StreamHandler()
     console.setFormatter(logging.Formatter("%(asctime)s %(levelname)-7s %(name)s: %(message)s"))
     lines: queue.SimpleQueue = queue.SimpleQueue()
-    logging.basicConfig(level=logging.DEBUG if verbose else logging.INFO,
-                        handlers=[logging.handlers.QueueHandler(lines)])
+    queued = logging.handlers.QueueHandler(lines)
+    # Pass the bare message through: without this, basicConfig gives the queue handler its
+    # default "INFO:name:" format and every line printed its prefix twice.
+    queued.setFormatter(logging.Formatter("%(message)s"))
+    logging.basicConfig(level=logging.DEBUG if verbose else logging.INFO, handlers=[queued])
     listener = logging.handlers.QueueListener(lines, console)
     listener.start()
     return listener
@@ -69,7 +72,9 @@ def disable_quick_edit() -> None:
 
 def main(argv: list[str] | None = None) -> None:
     p = argparse.ArgumentParser(prog="twitchplayeragent", description=__doc__)
-    p.add_argument("-c", "--config", help="path to a TOML config (see config.example.toml)")
+    p.add_argument("-c", "--config", action="append",
+                   help="TOML config (see config.example.toml); give it again to layer a game "
+                        "on top, e.g. -c config.toml -c games/gta6.toml")
     p.add_argument("--stdin", action="store_true",
                    help="read chat from the terminal instead of Twitch (lines like `ash: up`)")
     p.add_argument("--dry-run", action="store_true",

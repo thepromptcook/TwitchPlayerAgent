@@ -80,3 +80,13 @@ def test_example_chat_replays():
             user, _, text = line.partition(":")
             e.handle(msg(user.strip(), text.strip()), 0)
     assert drain(e) == ["start", "a", "a", "a", "down", "down", "right", "b", "left"]
+
+
+def test_a_controller_game_queues_its_commands():
+    from twitchplayeragent.config import load_config
+
+    e = Engine(load_config(["config.example.toml", "games/gta6.toml"]))
+    for user, text in [("a", "goup"), ("b", "steal that car"), ("c", "enter"), ("d", "up2"),
+                       ("e", "drive"), ("f", "left"), ("g", "start")]:
+        e.handle(msg(user, text), 0)
+    assert drain(e) == ["goup", "enter", "drive", "left"]  # up2/start aren't anarchy commands
