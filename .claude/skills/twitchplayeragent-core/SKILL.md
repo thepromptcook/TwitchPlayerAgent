@@ -110,7 +110,8 @@ One `deque` of presses (`maxlen = [anarchy].max_queue`, oldest dropped):
 
 ## Overlay (`overlay.py`)
 One OBS **Browser Source** (`http://localhost:<port>`, 1920×1080) replaces window capture and
-text sources. `ThreadingHTTPServer` on 127.0.0.1 in a daemon thread; port in use → SystemExit naming
+text sources. `ThreadingHTTPServer` on 127.0.0.1 in a daemon thread; `allow_reuse_address` off on Windows only
+(there SO_REUSEADDR lets two programs share a live port; elsewhere it just skips TIME_WAIT); port in use → SystemExit naming
 `[overlay].port`; port 0 picks a free one (tests). Routes: `/` the inline `PAGE`; `/state` the
 engine's `overlay_state` (pushed by the clock every 0.25 s); `/frame` raw RGBA + `X-Width`/`X-Height`
 headers, 204 if none; `/audio?after=N` sound chunks newer than N (`X-Seq`, `X-Rate`); `/favicon.ico` 204.

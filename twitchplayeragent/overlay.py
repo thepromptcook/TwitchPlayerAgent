@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import logging
+import sys
 import threading
 from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -37,7 +38,7 @@ class Overlay:
         self._audio: deque[tuple[int, bytes]] = deque(maxlen=300)  # (seq, chunk), ~5 s at 60/s
         self._audio_seq = 0
         self._audio_lock = threading.Lock()
-        self._server: ThreadingHTTPServer | None = None
+        self._server: _Server | None = None
 
     def update(self, state: dict) -> None:
         self.state = state  # replaced whole, so readers never see a half update
@@ -103,7 +104,7 @@ class Overlay:
                 pass
 
         try:
-            self._server = ThreadingHTTPServer(("127.0.0.1", self.port), Handler)
+            self._server = _Server(("127.0.0.1", self.port), Handler)
         except OSError as exc:
             raise SystemExit(
                 f"Overlay can't use port {self.port} ({exc.strerror}). "
@@ -118,6 +119,15 @@ class Overlay:
         if self._server is not None:
             self._server.shutdown()
             self._server = None
+
+
+class _Server(ThreadingHTTPServer):
+    """Refuses a port another program is listening on, on every OS. Python's HTTP
+    server sets SO_REUSEADDR: harmless on Mac/Linux (it only skips the post-restart
+    TIME_WAIT delay), but on Windows it lets a second program bind a port that's in
+    use instead of failing, so it's off there. Windows has no TIME_WAIT delay to skip."""
+
+    allow_reuse_address = sys.platform != "win32"
 
 
 PAGE = """<!DOCTYPE html>
