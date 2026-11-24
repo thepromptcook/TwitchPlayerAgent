@@ -23,5 +23,11 @@ twitchplayeragent = "twitchplayeragent.__main__:main"
 [tool.setuptools.packages.find]
 include = ["twitchplayeragent*"]
 
+[tool.setuptools.package-data]
+twitchplayeragent = ["overlay.html"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Terse output, no .pytest_cache folder. Browser checks are opt-in: pytest -m browser
+addopts = "-q --tb=short -p no:cacheprovider -m 'not browser'"
+markers = ["browser: renders the overlay in Chrome via Playwright (pytest -m browser)"]

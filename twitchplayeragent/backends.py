@@ -119,7 +119,7 @@ class PyBoyBackend(Backend):
         tmp.replace(path)  # atomic: a crash mid-save never corrupts the last good state
         log.info("Saved emulator state to %s", path)
 
-    def run_main_loop(self, stop: threading.Event) -> None:
+    def _open(self):
         try:
             from pyboy import PyBoy
         except ImportError as exc:
@@ -127,15 +127,10 @@ class PyBoyBackend(Backend):
         rom = Path(self.cfg.rom)
         if not rom.is_file():
             raise SystemExit(f"ROM not found at {rom}. Put your own ROM there or set [backend.pyboy].rom.")
-
-        # no_input: PyBoy's own keyboard controls are off, so keys typed into the game
-        # window (Ctrl+C, whose "c" cycles the palette) can't play; only chat does.
-        # But no_input also stops PyBoy reading the window's events at all, so Windows
-        # marks the window "Not Responding" on a click and the close button / Ctrl+C
-        # (SDL turns it into a quit event) are never seen. pump_window() below reads
-        # them instead: input is dropped, quit ends the loop.
-        # When the overlay carries the sound, mute the window: PyBoy's volume only scales
-        # what the window plays, not the samples it hands us.
+        # no_input: keys typed into the game window can't play (only chat does). It also
+        # stops PyBoy reading window events, so _window_pump() reads them instead.
+        # sound_volume only scales the window's own playback, not the samples the overlay
+        # gets, so mute the window when the overlay carries the sound.
         pyboy = PyBoy(str(rom), window=self.cfg.window, scale=self.cfg.scale,
                       no_input=not self.cfg.window_keyboard,
                       sound_volume=0 if self.on_audio is not None else 100)
@@ -145,37 +140,40 @@ class PyBoyBackend(Backend):
             with open(state, "rb") as fh:
                 pyboy.load_state(fh)
             log.info("Loaded emulator state from %s", state)
-        log.info("Game is running. Close the game window or press Ctrl+C to save and quit.")
-        pump_window = _window_pump() if not self.cfg.window_keyboard and self.cfg.window == "SDL2" else None
+        return pyboy
 
-        # Freeze report: if the loop stops ticking for 10 s, Python writes every thread's
-        # stack to hang-report.txt next to the save, showing where it got stuck.
-        state.parent.mkdir(parents=True, exist_ok=True)
-        hang_report = open(state.parent / "hang-report.txt", "w")
-        self._running.set()
+    def _publish(self, pyboy) -> None:
+        """This frame's picture and sound to the overlay (60 fps)."""
+        if self.on_frame is not None:
+            screen = pyboy.screen.ndarray  # live (144, 160, 4) RGBA view; tobytes copies
+            self.on_frame(screen.shape[1], screen.shape[0], screen.tobytes())
+        if self.on_audio is not None:
+            sound = pyboy.sound  # samples since the last tick, interleaved stereo int8
+            self.on_audio(sound.sample_rate, bytes(sound.raw_buffer[: sound.raw_buffer_head]))
+
+    def run_main_loop(self, stop: threading.Event) -> None:
+        pyboy = self._open()
+        pump_window = _window_pump() if not self.cfg.window_keyboard and self.cfg.window == "SDL2" else None
+        # Freeze report: if the loop stops for 10 s, every thread's stack goes to
+        # hang-report.txt beside the save, showing where it got stuck (empty = no freeze).
+        saves = Path(self.cfg.state_file).parent
+        saves.mkdir(parents=True, exist_ok=True)
+        hang_report = open(saves / "hang-report.txt", "w")
         autosave = self.cfg.autosave_minutes * 60
-        last_save = time.monotonic()
+        next_save = time.monotonic() + autosave
         job: tuple[str, threading.Event] | None = None
-        frame = 0  # frames since the current job's button went down
-        ticks = 0
+        frame = ticks = 0  # frame: frames since the current job's button went down
+        self._running.set()
+        log.info("Game is running. Close the game window or press Ctrl+C to save and quit.")
         try:
             while not stop.is_set():
                 if job is None and not self._jobs.empty():
                     job, frame = self._jobs.get_nowait(), 0
                     pyboy.button_press(job[0])
-                if not pyboy.tick():  # False when PyBoy saw the window close
-                    break
-                if pump_window is not None and pump_window():  # we saw it close / Ctrl+C
-                    break
+                if not pyboy.tick() or (pump_window is not None and pump_window()):
+                    break  # window closed, or Ctrl+C
                 ticks += 1
-                if ticks % 60 == 0:  # re-arm the watchdog every second
-                    faulthandler.dump_traceback_later(10, file=hang_report)
-                if self.on_frame is not None:  # every frame (60 fps) to the overlay
-                    screen = pyboy.screen.ndarray  # live (144, 160, 4) RGBA view; tobytes copies
-                    self.on_frame(screen.shape[1], screen.shape[0], screen.tobytes())
-                if self.on_audio is not None:  # this frame's samples, interleaved stereo int8
-                    sound = pyboy.sound
-                    self.on_audio(sound.sample_rate, bytes(sound.raw_buffer[: sound.raw_buffer_head]))
+                self._publish(pyboy)
                 if job is not None:
                     frame += 1
                     if frame == self.hold:
@@ -183,9 +181,11 @@ class PyBoyBackend(Backend):
                     if frame >= self.total:
                         job[1].set()
                         job = None
-                if autosave > 0 and time.monotonic() - last_save >= autosave:
-                    self._save(pyboy)
-                    last_save = time.monotonic()
+                if ticks % 60 == 0:  # once a second
+                    faulthandler.dump_traceback_later(10, file=hang_report)
+                    if autosave > 0 and time.monotonic() >= next_save:
+                        self._save(pyboy)
+                        next_save = time.monotonic() + autosave
         finally:
             faulthandler.cancel_dump_traceback_later()
             hang_report.close()

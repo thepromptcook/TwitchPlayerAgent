@@ -2,8 +2,6 @@ import asyncio
 
 from conftest import drain, make_cfg, msg
 from twitchplayeragent.backends import LogBackend
-from twitchplayeragent.chat import ChatMessage, parse_irc_line
-from twitchplayeragent.config import Config
 from twitchplayeragent.engine import Engine
 from twitchplayeragent.modes import Mode
 
@@ -61,14 +59,6 @@ def test_switching_modes_clears_pending_inputs():
     assert drain(e) == []
 
 
-def test_parse_irc_privmsg():
-    line = ("@badge-info=;color=#FF0000;display-name=AshKetchum;mod=0 "
-            ":ashketchum!ashketchum@ashketchum.tmi.twitch.tv PRIVMSG #tpp :up2left")
-    m = parse_irc_line(line)
-    assert m == ChatMessage("ashketchum", "AshKetchum", "up2left")
-    assert parse_irc_line(":tmi.twitch.tv 001 justinfan1 :Welcome") is None
-
-
 def test_run_end_to_end_with_log_backend():
     async def chat():
         for t in ["up", "a", "nope", "b"]:
@@ -90,18 +80,3 @@ def test_example_chat_replays():
             user, _, text = line.partition(":")
             e.handle(msg(user.strip(), text.strip()), 0)
     assert drain(e) == ["start", "a", "a", "a", "down", "down", "right", "b", "left"]
-
-
-def test_ctrl_c_stops_gently_then_forces():
-    import threading
-
-    import pytest
-
-    from twitchplayeragent.__main__ import stop_on_ctrl_c
-
-    stop = threading.Event()
-    handler = stop_on_ctrl_c(stop)
-    handler(2, None)  # first Ctrl+C: ask the game loop to save and quit
-    assert stop.is_set()
-    with pytest.raises(KeyboardInterrupt):  # second: force
-        handler(2, None)

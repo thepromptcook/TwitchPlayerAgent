@@ -143,8 +143,10 @@ drops.
 ## Development
 ```bash
 pip install -e ".[dev]"
-pytest                                                          # ~3 s, no game or network needed
-python -m twitchplayeragent --stdin --dry-run < examples/chat.txt   # offline replay
+pytest                    # ~5 s, no game or network needed
+pytest -m browser         # overlay in Chrome: 60 fps, sound, no JS errors (needs Playwright)
+python tools/overlay_check.py                                     # same, plus screenshots in overlay-shots/
+python -m twitchplayeragent --stdin --dry-run < examples/chat.txt  # offline replay
 ```
 
 | File | Role |
@@ -155,8 +157,9 @@ python -m twitchplayeragent --stdin --dry-run < examples/chat.txt   # offline re
 | `llm.py` | AI mode (Claude or Ollama) |
 | `chat.py` | Twitch IRC and terminal chat sources |
 | `backends.py` | PyBoy, keyboard and dry-run input |
-| `overlay.py` | local web page for one OBS Browser Source |
+| `overlay.py` / `overlay.html` | local web server / the OBS page itself |
 | `config.py` / `__main__.py` | TOML config and command line |
 
-Claude skills in `.claude/skills/` describe how to rebuild the project:
-`twitchplayeragent-core` (game-agnostic engine) and `pokemon-red` (game knowledge).
+Tests: one file per module, `tests/test_<module>.py`. Claude skills in `.claude/skills/`:
+`twitchplayeragent-core` (a short map, with details in `references/` read only when needed)
+and `pokemon-red` (game knowledge).

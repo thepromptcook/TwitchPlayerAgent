@@ -1,22 +1,17 @@
-"""Stream overlay as one local web page, for a single OBS Browser Source.
+"""Stream overlay: one local web page for a single OBS Browser Source.
 
-http://localhost:<[overlay].port>/ (default 8080) shows the game screen plus the
-input list, anarchy/democracy meter, democracy votes and AI summary, laid out
-for a 1920x1080 canvas: a thin bar under the game by default, or the original
-stream's right-hand sidebar with /?layout=sidebar. The game image comes straight from the emulator's
-memory, so it keeps working when the game window is minimized or behind other
-windows. Open the same URL in a normal browser to preview it.
+http://localhost:<[overlay].port>/ (default 8080) shows the game plus mode, meter,
+votes or AI summary, and recent inputs on a 1920x1080 canvas: a thin bar under the
+game by default, or the original stream's sidebar with /?layout=sidebar. Picture
+and sound come straight from the emulator, so the game window can be minimized.
+The page itself is overlay.html (edit it there; tests syntax-check its script).
 
-Game sound goes through the page too (``[overlay].audio``), so the one Browser
-Source carries picture and sound.
-
-Endpoints: /  (the page)  /state  (JSON, polled 4x a second)  /frames  (a stream
-that pushes every game frame as it's drawn: 4-byte header width,height as
-little-endian uint16, then width*height RGBA bytes)  /frame  (just the latest
-frame; 204 when there's none, e.g. keyboard backend)
-/audio?after=N  (signed 8-bit stereo samples newer than chunk N, header X-Seq).
-
-Only 127.0.0.1 is served. Chat text is inserted with textContent, never as HTML.
+Routes (127.0.0.1 only):
+  /              the page
+  /state         JSON from Engine.overlay_state, polled 4x a second
+  /frames        one long response pushing every frame as it's drawn:
+                 <HH width,height header + width*height RGBA bytes
+  /audio?after=N signed 8-bit stereo samples newer than chunk N (X-Seq, X-Rate headers)
 """
 
 from __future__ import annotations
@@ -28,14 +23,18 @@ import sys
 import threading
 from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 
 log = logging.getLogger(__name__)
+
+PAGE = Path(__file__).with_name("overlay.html").read_text(encoding="utf-8")
 
 
 class Overlay:
     def __init__(self, port: int = 8080, audio: bool = True) -> None:
         self.port = port
-        self.audio = audio
+        self.page = PAGE if audio else PAGE.replace("const AUDIO = true;", "const AUDIO = false;", 1)
         self.state: dict = {}
         self.frame: tuple[int, int, bytes] | None = None  # width, height, RGBA bytes
         self._frame_seq = 0
@@ -46,6 +45,8 @@ class Overlay:
         self._audio_lock = threading.Lock()
         self._server: _Server | None = None
 
+    # ---- fed by the engine and the backend --------------------------------
+
     def update(self, state: dict) -> None:
         self.state = state  # replaced whole, so readers never see a half update
 
@@ -55,100 +56,44 @@ class Overlay:
             self._frame_seq += 1
             self._frame_ready.notify_all()  # wake every /frames stream
 
+    def add_audio(self, rate: int, samples: bytes) -> None:
+        """One emulated frame of sound: interleaved stereo, signed 8-bit."""
+        if samples:
+            with self._audio_lock:
+                self.audio_rate = rate
+                self._audio_seq += 1
+                self._audio.append((self._audio_seq, samples))
+
+    # ---- read by the HTTP handler ------------------------------------------
+
     def next_frame(self, after: int, timeout: float = 1.0) -> tuple[int, tuple[int, int, bytes] | None]:
-        """Wait for a frame newer than ``after``; returns (seq, frame) or (after, None)."""
+        """Wait for a frame newer than ``after``: (seq, frame), or (after, None) on timeout."""
         with self._frame_ready:
             if not self._frame_ready.wait_for(lambda: self._frame_seq != after, timeout):
                 return after, None
             return self._frame_seq, self.frame
 
-    def add_audio(self, rate: int, samples: bytes) -> None:
-        """One emulated frame of sound: interleaved stereo, signed 8-bit."""
-        if not samples:
-            return
-        with self._audio_lock:
-            self.audio_rate = rate
-            self._audio_seq += 1
-            self._audio.append((self._audio_seq, samples))
-
     def audio_since(self, after: int) -> tuple[int, bytes]:
-        """(latest seq, samples newer than ``after``). A new listener (after < 0)
-        or one that fell behind gets only the last few chunks, to stay near live."""
+        """(latest seq, samples newer than ``after``). A new listener (after < 0) or one
+        that fell behind gets only the last 3 chunks, to stay near live."""
         with self._audio_lock:
-            chunks = list(self._audio)
-            latest = self._audio_seq
+            chunks, latest = list(self._audio), self._audio_seq
         if after < 0 or (chunks and after < chunks[0][0] - 1):
             after = latest - 3
         return latest, b"".join(data for seq, data in chunks if seq > after)
 
+    # ---- server ----------------------------------------------------------------
+
     def start(self) -> None:
-        overlay = self
-
-        class Handler(BaseHTTPRequestHandler):
-            def do_GET(self) -> None:
-                path = self.path.split("?")[0]
-                if path == "/":
-                    page = PAGE.replace("const $ =", f"const AUDIO = {str(overlay.audio).lower()};\nconst $ =", 1)
-                    self._send(200, "text/html; charset=utf-8", page.encode())
-                elif path == "/state":
-                    self._send(200, "application/json", json.dumps(overlay.state).encode())
-                elif path == "/frames":
-                    self._stream_frames()
-                elif path == "/frame" and overlay.frame is not None:
-                    w, h, data = overlay.frame
-                    self._send(200, "application/octet-stream", data, {"X-Width": w, "X-Height": h})
-                elif path == "/audio":
-                    query = self.path.partition("?")[2]
-                    after = int(query.partition("after=")[2] or -1) if "after=" in query else -1
-                    seq, data = overlay.audio_since(after)
-                    self._send(200, "application/octet-stream", data,
-                               {"X-Seq": seq, "X-Rate": overlay.audio_rate})
-                elif path in ("/frame", "/favicon.ico"):
-                    self._send(204, "text/plain", b"")
-                else:
-                    self._send(404, "text/plain", b"not found")
-
-            def _stream_frames(self) -> None:
-                # One long response (HTTP/1.0: ends when the connection closes), so frames
-                # arrive the moment they're drawn, with no per-frame request round trip.
-                self.send_response(200)
-                self.send_header("Content-Type", "application/octet-stream")
-                self.send_header("Cache-Control", "no-store")
-                self.end_headers()
-                seq = -1
-                while overlay._server is not None:
-                    seq, frame = overlay.next_frame(seq)
-                    if frame is None:
-                        continue
-                    w, h, data = frame
-                    try:
-                        self.wfile.write(struct.pack("<HH", w, h) + data)
-                        self.wfile.flush()
-                    except OSError:  # page closed or reloaded
-                        return
-
-            def _send(self, code: int, ctype: str, body: bytes, extra: dict | None = None) -> None:
-                self.send_response(code)
-                self.send_header("Content-Type", ctype)
-                self.send_header("Content-Length", str(len(body)))
-                self.send_header("Cache-Control", "no-store")
-                for k, v in (extra or {}).items():
-                    self.send_header(k, str(v))
-                self.end_headers()
-                self.wfile.write(body)
-
-            def log_message(self, *args) -> None:  # no per-request logging
-                pass
-
         try:
-            self._server = _Server(("127.0.0.1", self.port), Handler)
+            self._server = _Server(("127.0.0.1", self.port), _Handler)
         except OSError as exc:
             raise SystemExit(
                 f"Overlay can't use port {self.port} ({exc.strerror}). "
                 "Close whatever uses it or set [overlay].port to another number."
             ) from None
-        self._server.daemon_threads = True
-        self.port = self._server.server_address[1]  # real port when 0 was asked for
+        self._server.overlay = self
+        self.port = self._server.server_address[1]  # the real port when 0 was asked for
         threading.Thread(target=self._server.serve_forever, name="overlay", daemon=True).start()
         log.info("Overlay at http://localhost:%d  (OBS: Browser Source, 1920x1080)", self.port)
 
@@ -159,179 +104,62 @@ class Overlay:
 
 
 class _Server(ThreadingHTTPServer):
-    """Refuses a port another program is listening on, on every OS. Python's HTTP
-    server sets SO_REUSEADDR: harmless on Mac/Linux (it only skips the post-restart
-    TIME_WAIT delay), but on Windows it lets a second program bind a port that's in
-    use instead of failing, so it's off there. Windows has no TIME_WAIT delay to skip."""
-
+    # Python's HTTP server sets SO_REUSEADDR. On Mac/Linux that only skips the TIME_WAIT
+    # wait after a restart; on Windows it lets a second program bind a port that's in
+    # use instead of failing, so two bots could silently share 8080. Off on Windows.
     allow_reuse_address = sys.platform != "win32"
+    daemon_threads = True
+    overlay: Overlay
 
 
-PAGE = """<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>TwitchPlayerAgent overlay</title>
-<style>
-  html, body { margin: 0; width: 1920px; height: 1080px; overflow: hidden; background: transparent;
-    font: 28px/1.3 Consolas, "Courier New", monospace; color: #f2f2f2; }
-  #game { position: absolute; background: #000; image-rendering: pixelated; display: none; }
-  #panel { position: absolute; box-sizing: border-box; background: #15151c; display: flex; }
-  #mode { font-weight: bold; }
-  .anarchy { color: #ff5a5a; } .democracy { color: #5aa0ff; } .ai { color: #c58bff; }
-  #meter { position: relative; background: #ff5a5a; border-radius: 4px; overflow: hidden; }
-  #meter .dem { position: absolute; right: 0; top: 0; bottom: 0; background: #5aa0ff; }
-  #meter .mark { position: absolute; top: 0; bottom: 0; width: 4px; background: #fff; }
-  #meter-labels { display: flex; justify-content: space-between; font-size: 20px; color: #aaa; margin-top: 6px; }
-  #info { color: #ddd; }
-  #info .row { display: flex; justify-content: space-between; }
-  #inputs { overflow: hidden; display: flex; }
-  #inputs div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  #inputs .user { color: #9a9aa8; }
-  #inputs .sys { color: #ffd166; }
+class _Handler(BaseHTTPRequestHandler):
+    server: _Server
 
-  /* Default: a thin bar under the game. The game is scaled exactly 7x (1120x1008) and
-     the bar sits below it, never over it: Pokemon's text boxes are at the bottom. */
-  .bar #game { left: 400px; top: 0; width: 1120px; height: 1008px; }
-  .bar #panel { left: 0; top: 1008px; width: 1920px; height: 72px; padding: 0 28px;
-    align-items: center; gap: 28px; font-size: 26px; }
-  .bar #mode { font-size: 34px; letter-spacing: 2px; flex: none; }
-  .bar #meterbox { width: 260px; flex: none; }
-  .bar #meter { height: 22px; }
-  .bar #meter-labels { display: none; }
-  .bar #info { flex: none; max-width: 1100px; white-space: pre; overflow: hidden; text-overflow: ellipsis; }
-  .bar #inputs { flex: 1; align-items: center; gap: 26px;
-    -webkit-mask-image: linear-gradient(to right, #000 88%, transparent); }
-  .bar #inputs div { flex: none; }
+    def do_GET(self) -> None:
+        overlay = self.server.overlay
+        url = urlsplit(self.path)
+        if url.path == "/":
+            self._send(200, "text/html; charset=utf-8", overlay.page.encode())
+        elif url.path == "/state":
+            self._send(200, "application/json", json.dumps(overlay.state).encode())
+        elif url.path == "/frames":
+            self._stream_frames(overlay)
+        elif url.path == "/audio":
+            after = int(parse_qs(url.query).get("after", ["-1"])[0])
+            seq, data = overlay.audio_since(after)
+            self._send(200, "application/octet-stream", data, {"X-Seq": seq, "X-Rate": overlay.audio_rate})
+        elif url.path == "/favicon.ico":
+            self._send(204, "text/plain", b"")
+        else:
+            self._send(404, "text/plain", b"not found")
 
-  /* ?layout=sidebar: the original stream's look, game left and a 720 px panel right. */
-  .sidebar #game { left: 0; top: 0; width: 1200px; height: 1080px; }
-  .sidebar #panel { left: 1200px; top: 0; width: 720px; height: 1080px; padding: 28px 32px;
-    flex-direction: column; gap: 22px; }
-  .sidebar #mode { font-size: 52px; letter-spacing: 3px; }
-  .sidebar #meter { height: 34px; }
-  .sidebar #info { white-space: pre-wrap; }
-  .sidebar #inputs { flex: 1; flex-direction: column; justify-content: flex-end; }
-</style></head><body>
-<canvas id="game" width="160" height="144"></canvas>
-<div id="panel">
-  <div id="mode"></div>
-  <div id="meterbox"><div id="meter"><div class="dem"></div><div class="mark"></div></div>
-    <div id="meter-labels"><span>ANARCHY</span><span>DEMOCRACY</span></div></div>
-  <div id="info"></div>
-  <div id="inputs"></div>
-</div>
-<script>
-const $ = id => document.getElementById(id);
-document.body.className = new URLSearchParams(location.search).get("layout") === "sidebar" ? "sidebar" : "bar";
-function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls;
-  if (text !== undefined) e.textContent = text; return e; }
+    def _stream_frames(self, overlay: Overlay) -> None:
+        # One long HTTP/1.0 response (it ends when the connection closes), so each frame
+        # arrives the moment it's drawn. Polling one request per frame managed ~30 fps.
+        self.send_response(200)
+        self.send_header("Content-Type", "application/octet-stream")
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        seq = -1
+        while overlay._server is not None:
+            seq, frame = overlay.next_frame(seq)
+            if frame is not None:
+                w, h, data = frame
+                try:
+                    self.wfile.write(struct.pack("<HH", w, h) + data)
+                    self.wfile.flush()
+                except OSError:  # page closed or reloaded
+                    return
 
-async function pollState() {
-  try {
-    const s = await (await fetch("/state", {cache: "no-store"})).json();
-    if (s.mode) render(s);
-  } catch (e) {}
-  setTimeout(pollState, 250);
-}
+    def _send(self, code: int, ctype: str, body: bytes, extra: dict | None = None) -> None:
+        self.send_response(code)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        for k, v in (extra or {}).items():
+            self.send_header(k, str(v))
+        self.end_headers()
+        self.wfile.write(body)
 
-function render(s) {
-  const bar = document.body.className === "bar";
-  const mode = $("mode"); mode.textContent = s.mode.toUpperCase(); mode.className = s.mode;
-  $("meterbox").style.display = s.mode === "ai" ? "none" : "";
-  $("meter").querySelector(".dem").style.width = (s.share * 100) + "%";
-  $("meter").querySelector(".mark").style.right = (s.threshold * 100) + "%";
-  const info = $("info"); info.replaceChildren();
-  const pct = n => Math.round(100 * n / Math.max(1, s.total_votes)) + "%";
-  const countdown = s.seconds_left == null ? "Waiting for votes" : Math.ceil(s.seconds_left) + "s";
-  if (s.mode === "ai") info.textContent = s.summary || "Waiting for chat";
-  else if (s.mode === "democracy" && bar) {  // one line: "13s  up2left 55%  start9 32%"
-    info.textContent = [countdown, ...s.votes.slice(0, 3).map(([k, n]) => k + " " + pct(n))].join(" · ");
-  } else if (s.mode === "democracy") {
-    info.append(el("div", "", s.seconds_left == null ? countdown : "Next input in " + countdown));
-    for (const [key, n] of s.votes.slice(0, 5)) {
-      const row = el("div", "row"); row.append(el("span", "", key), el("span", "", n + "  " + pct(n)));
-      info.append(row);
-    }
-  }
-  const list = $("inputs"); list.replaceChildren();
-  // Bar: newest first, left to right; sidebar: oldest at the top, newest at the bottom.
-  for (const line of bar ? [...s.inputs].reverse().slice(0, 12) : s.inputs) {
-    const sys = line.startsWith(">>") || line.startsWith("***");
-    const [user, ...rest] = line.split("  ");
-    const row = el("div", sys ? "sys" : "");
-    if (sys || !rest.length) row.textContent = line;
-    else row.append(el("span", "user", user + " "), el("span", "", rest.join("  ")));
-    list.append(row);
-  }
-}
-
-// Game picture: one long /frames response pushes every frame as it's drawn (60 fps).
-// Each frame is a 4-byte header (width, height) and width*height*4 RGBA bytes.
-async function streamFrames() {
-  const canvas = $("game"), ctx = canvas.getContext("2d");
-  let latest = null;
-  (function draw() {  // paint the newest frame once per display refresh
-    if (latest) {
-      const {w, h, px} = latest; latest = null;
-      if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
-      ctx.putImageData(new ImageData(px, w, h), 0, 0);
-      canvas.style.display = "block";
-    }
-    requestAnimationFrame(draw);
-  })();
-  for (;;) {
-    try {
-      const reader = (await fetch("/frames", {cache: "no-store"})).body.getReader();
-      let buf = new Uint8Array(0);
-      for (;;) {
-        const {value, done} = await reader.read();
-        if (done) break;
-        const joined = new Uint8Array(buf.length + value.length);
-        joined.set(buf); joined.set(value, buf.length); buf = joined;
-        while (buf.length >= 4) {
-          const w = buf[0] | buf[1] << 8, h = buf[2] | buf[3] << 8, end = 4 + w * h * 4;
-          if (buf.length < end) break;
-          latest = {w, h, px: new Uint8ClampedArray(buf.buffer.slice(buf.byteOffset + 4, buf.byteOffset + end))};
-          buf = buf.subarray(end);
-        }
-      }
-    } catch (e) {}
-    canvas.style.display = "none";  // bot restarting: retry in a second
-    await new Promise(r => setTimeout(r, 1000));
-  }
-}
-
-// Game sound: poll new samples and schedule them back to back with a small
-// buffer. PyBoy's samples run 0..127 (never negative), so a DC blocker centres
-// the wave; otherwise playback clicks. OBS allows autoplay; in a normal browser,
-// click the page once to start sound.
-async function pollAudio() {
-  let ctx = null, seq = -1, next = 0;
-  const dc = [{x: 0, y: 0}, {x: 0, y: 0}];
-  addEventListener("click", () => ctx && ctx.resume());
-  for (;;) {
-    await new Promise(r => setTimeout(r, 40));
-    try {
-      const r = await fetch("/audio?after=" + seq, {cache: "no-store"});
-      seq = +r.headers.get("X-Seq");
-      const rate = +r.headers.get("X-Rate");
-      const raw = new Int8Array(await r.arrayBuffer());
-      if (!rate || raw.length < 2) continue;
-      if (!ctx) { ctx = new AudioContext({sampleRate: rate}); ctx.resume(); }
-      const frames = raw.length >> 1, buf = ctx.createBuffer(2, frames, rate);
-      for (let c = 0; c < 2; c++) {
-        const out = buf.getChannelData(c), f = dc[c];
-        for (let i = 0; i < frames; i++) {
-          const x = raw[2 * i + c] / 128;
-          f.y = x - f.x + 0.995 * f.y; f.x = x; out[i] = f.y;
-        }
-      }
-      const now = ctx.currentTime;
-      if (next < now + 0.02 || next > now + 0.4) next = now + 0.12;  // (re)start or catch up
-      const src = ctx.createBufferSource(); src.buffer = buf; src.connect(ctx.destination);
-      src.start(next); next += buf.duration;
-      window.audioFramesPlayed = (window.audioFramesPlayed || 0) + frames;
-    } catch (e) {}
-  }
-}
-pollState(); streamFrames(); if (AUDIO) pollAudio();
-</script></body></html>
-"""
+    def log_message(self, *args) -> None:  # no per-request logging
+        pass

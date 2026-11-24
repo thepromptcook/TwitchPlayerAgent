@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>TwitchPlayerAgent overlay</title>
+<style>
+  html, body { margin: 0; width: 1920px; height: 1080px; overflow: hidden; background: transparent;
+    font: 28px/1.3 Consolas, "Courier New", monospace; color: #f2f2f2; }
+  #game { position: absolute; background: #000; image-rendering: pixelated; display: none; }
+  #panel { position: absolute; box-sizing: border-box; background: #15151c; display: flex; }
+  #mode { font-weight: bold; }
+  .anarchy { color: #ff5a5a; } .democracy { color: #5aa0ff; } .ai { color: #c58bff; }
+  #meter { position: relative; background: #ff5a5a; border-radius: 4px; overflow: hidden; }
+  #meter .dem { position: absolute; right: 0; top: 0; bottom: 0; background: #5aa0ff; }
+  #meter .mark { position: absolute; top: 0; bottom: 0; width: 4px; background: #fff; }
+  #meter-labels { display: flex; justify-content: space-between; font-size: 20px; color: #aaa; margin-top: 6px; }
+  #info { color: #ddd; }
+  #info .row { display: flex; justify-content: space-between; }
+  #inputs { overflow: hidden; display: flex; }
+  #inputs div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #inputs .user { color: #9a9aa8; }
+  #inputs .sys { color: #ffd166; }
+
+  /* Default: a thin bar under the game. The game is scaled exactly 7x (1120x1008) and
+     the bar sits below it, never over it: Pokemon's text boxes are at the bottom. */
+  .bar #game { left: 400px; top: 0; width: 1120px; height: 1008px; }
+  .bar #panel { left: 0; top: 1008px; width: 1920px; height: 72px; padding: 0 28px;
+    align-items: center; gap: 28px; font-size: 26px; }
+  .bar #mode { font-size: 34px; letter-spacing: 2px; flex: none; }
+  .bar #meterbox { width: 260px; flex: none; }
+  .bar #meter { height: 22px; }
+  .bar #meter-labels { display: none; }
+  .bar #info { flex: none; max-width: 1100px; white-space: pre; overflow: hidden; text-overflow: ellipsis; }
+  .bar #inputs { flex: 1; align-items: center; gap: 26px;
+    -webkit-mask-image: linear-gradient(to right, #000 88%, transparent); }
+  .bar #inputs div { flex: none; }
+
+  /* ?layout=sidebar: the original stream's look, game left and a 720 px panel right. */
+  .sidebar #game { left: 0; top: 0; width: 1200px; height: 1080px; }
+  .sidebar #panel { left: 1200px; top: 0; width: 720px; height: 1080px; padding: 28px 32px;
+    flex-direction: column; gap: 22px; }
+  .sidebar #mode { font-size: 52px; letter-spacing: 3px; }
+  .sidebar #meter { height: 34px; }
+  .sidebar #info { white-space: pre-wrap; }
+  .sidebar #inputs { flex: 1; flex-direction: column; justify-content: flex-end; }
+</style></head><body>
+<canvas id="game" width="160" height="144"></canvas>
+<div id="panel">
+  <div id="mode"></div>
+  <div id="meterbox"><div id="meter"><div class="dem"></div><div class="mark"></div></div>
+    <div id="meter-labels"><span>ANARCHY</span><span>DEMOCRACY</span></div></div>
+  <div id="info"></div>
+  <div id="inputs"></div>
+</div>
+<script>
+const AUDIO = true;  // overlay.py serves false when [overlay].audio is off
+const $ = id => document.getElementById(id);
+document.body.className = new URLSearchParams(location.search).get("layout") === "sidebar" ? "sidebar" : "bar";
+function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls;
+  if (text !== undefined) e.textContent = text; return e; }
+
+async function pollState() {
+  try {
+    const s = await (await fetch("/state", {cache: "no-store"})).json();
+    if (s.mode) render(s);
+  } catch (e) {}
+  setTimeout(pollState, 250);
+}
+
+function render(s) {
+  const bar = document.body.className === "bar";
+  const mode = $("mode"); mode.textContent = s.mode.toUpperCase(); mode.className = s.mode;
+  $("meterbox").style.display = s.mode === "ai" ? "none" : "";
+  $("meter").querySelector(".dem").style.width = (s.share * 100) + "%";
+  $("meter").querySelector(".mark").style.right = (s.threshold * 100) + "%";
+  const info = $("info"); info.replaceChildren();
+  const pct = n => Math.round(100 * n / Math.max(1, s.total_votes)) + "%";
+  const countdown = s.seconds_left == null ? "Waiting for votes" : Math.ceil(s.seconds_left) + "s";
+  if (s.mode === "ai") info.textContent = s.summary || "Waiting for chat";
+  else if (s.mode === "democracy" && bar) {  // one line: "13s  up2left 55%  start9 32%"
+    info.textContent = [countdown, ...s.votes.slice(0, 3).map(([k, n]) => k + " " + pct(n))].join(" · ");
+  } else if (s.mode === "democracy") {
+    info.append(el("div", "", s.seconds_left == null ? countdown : "Next input in " + countdown));
+    for (const [key, n] of s.votes.slice(0, 5)) {
+      const row = el("div", "row"); row.append(el("span", "", key), el("span", "", n + "  " + pct(n)));
+      info.append(row);
+    }
+  }
+  const list = $("inputs"); list.replaceChildren();
+  // Bar: newest first, left to right; sidebar: oldest at the top, newest at the bottom.
+  for (const line of bar ? [...s.inputs].reverse().slice(0, 12) : s.inputs) {
+    const sys = line.startsWith(">>") || line.startsWith("***");
+    const [user, ...rest] = line.split("  ");
+    const row = el("div", sys ? "sys" : "");
+    if (sys || !rest.length) row.textContent = line;
+    else row.append(el("span", "user", user + " "), el("span", "", rest.join("  ")));
+    list.append(row);
+  }
+}
+
+// Game picture: one long /frames response pushes every frame as it's drawn (60 fps).
+// Each frame is a 4-byte header (width, height) and width*height*4 RGBA bytes.
+async function streamFrames() {
+  const canvas = $("game"), ctx = canvas.getContext("2d");
+  let latest = null;
+  (function draw() {  // paint the newest frame once per display refresh
+    if (latest) {
+      const {w, h, px} = latest; latest = null;
+      if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+      ctx.putImageData(new ImageData(px, w, h), 0, 0);
+      canvas.style.display = "block";
+    }
+    requestAnimationFrame(draw);
+  })();
+  for (;;) {
+    try {
+      const reader = (await fetch("/frames", {cache: "no-store"})).body.getReader();
+      let buf = new Uint8Array(0);
+      for (;;) {
+        const {value, done} = await reader.read();
+        if (done) break;
+        const joined = new Uint8Array(buf.length + value.length);
+        joined.set(buf); joined.set(value, buf.length); buf = joined;
+        while (buf.length >= 4) {
+          const w = buf[0] | buf[1] << 8, h = buf[2] | buf[3] << 8, end = 4 + w * h * 4;
+          if (buf.length < end) break;
+          latest = {w, h, px: new Uint8ClampedArray(buf.buffer.slice(buf.byteOffset + 4, buf.byteOffset + end))};
+          buf = buf.subarray(end);
+        }
+      }
+    } catch (e) {}
+    canvas.style.display = "none";  // bot restarting: retry in a second
+    await new Promise(r => setTimeout(r, 1000));
+  }
+}
+
+// Game sound: poll new samples and schedule them back to back with a small
+// buffer. PyBoy's samples run 0..127 (never negative), so a DC blocker centres
+// the wave; otherwise playback clicks. OBS allows autoplay; in a normal browser,
+// click the page once to start sound.
+async function pollAudio() {
+  let ctx = null, seq = -1, next = 0;
+  const dc = [{x: 0, y: 0}, {x: 0, y: 0}];
+  addEventListener("click", () => ctx && ctx.resume());
+  for (;;) {
+    await new Promise(r => setTimeout(r, 40));
+    try {
+      const r = await fetch("/audio?after=" + seq, {cache: "no-store"});
+      seq = +r.headers.get("X-Seq");
+      const rate = +r.headers.get("X-Rate");
+      const raw = new Int8Array(await r.arrayBuffer());
+      if (!rate || raw.length < 2) continue;
+      if (!ctx) { ctx = new AudioContext({sampleRate: rate}); ctx.resume(); }
+      const frames = raw.length >> 1, buf = ctx.createBuffer(2, frames, rate);
+      for (let c = 0; c < 2; c++) {
+        const out = buf.getChannelData(c), f = dc[c];
+        for (let i = 0; i < frames; i++) {
+          const x = raw[2 * i + c] / 128;
+          f.y = x - f.x + 0.995 * f.y; f.x = x; out[i] = f.y;
+        }
+      }
+      const now = ctx.currentTime;
+      if (next < now + 0.02 || next > now + 0.4) next = now + 0.12;  // (re)start or catch up
+      const src = ctx.createBufferSource(); src.buffer = buf; src.connect(ctx.destination);
+      src.start(next); next += buf.duration;
+      window.audioFramesPlayed = (window.audioFramesPlayed || 0) + frames;
+    } catch (e) {}
+  }
+}
+pollState(); streamFrames(); if (AUDIO) pollAudio();
+</script></body></html>

@@ -7,8 +7,11 @@ saves/
 *.state
 *.ram
 
-# Local config may hold an OAuth token
+# Local config
 config.toml
+
+# tools/overlay_check.py screenshots
+overlay-shots/
 
 # Python
 __pycache__/
